@@ -55,4 +55,143 @@ describe('#arrayProxy()', function() {
     proxy.third = 'castle';
     expect(array).to.eql([ 'able', 'bravo', 'castle', 'delta' ]);
   })
+  it('should retrieval of property that depends on the presence of a static string', function() {
+    const array = [ 'categories', '123' ];
+    const proxy = arrayProxy(array, {
+      categoryId: {
+        "categories": 0,
+        $: 1,
+      }
+    });
+    expect(proxy).to.have.property('categoryId', '123');
+    expect(proxy).to.eql({ categoryId: '123' });
+    expect('categoryId' in proxy).to.be.true;
+    expect('nonsense' in proxy).to.be.false;
+  })
+  it('should yield undefined when required static string is absent', function() {
+    const array = [ 'forums', '123' ];
+    const proxy = arrayProxy(array, {
+      categoryId: {
+        "categories": 0,
+        $: 1,
+      }
+    });
+    expect(proxy.categoryId).to.be.undefined;
+    expect(proxy).to.eql({});
+    expect(Object.keys(proxy)).to.eql([]);
+    expect('categoryId' in proxy).to.be.false;
+  })
+  it('should allow the setting of multiple parts', function() {
+    const array = [ 'forums', '123', 'messages', '18' ];
+    const proxy = arrayProxy(array, {
+      categoryId: {
+        "categories": 0,
+        $: 1,
+      },
+      forumId: {
+        "forums": 0,
+        $: 1,
+      },
+      messageId: {
+        "messages": 2,
+        $: 3
+      }
+    });
+    expect(proxy).to.eql({ forumId: '123', messageId: '18' });
+    proxy.categoryId = '18';
+    expect(array).to.eql([ 'categories', '18', 'messages', '18' ]);
+  })
+  it('should remove elements behind the specified index when removing is used', function() {
+    const array = [ 'forums', '123', 'messages', '18' ];
+    const proxy = arrayProxy(array, {
+      categoryId: {
+        "categories": 0,
+        $: 1,
+        ...removing,
+      },
+      forumId: {
+        "forums": 0,
+        $: 1,
+        ...removing,
+      },
+      messageId: {
+        "messages": 2,
+        $: 3
+      }
+    });
+    expect(proxy).to.eql({ forumId: '123', messageId: '18' });
+    proxy.categoryId = '18';
+    expect(array).to.eql([ 'categories', '18' ]);
+  })
+  it('should insert static strings triggering the existence of another property', function() {
+    const array = [ 'forums', '123', 'messages', '18' ];
+    const proxy = arrayProxy(array, {
+      categoryId: {
+        "categories": 0,
+        $: 1,
+        ...removing,
+      },
+      productId: {
+        "products": 2,
+        $: 3,
+        "summary": 4,
+        ...removing,
+      },
+      productSection: 4,
+      forumId: {
+        "forums": 0,
+        $: 1,
+        ...removing,
+      },
+      messageId: {
+        "messages": 2,
+        $: 3
+      }
+    });
+    expect(proxy).to.eql({ forumId: '123', messageId: '18' });
+    proxy.categoryId = '18';
+    expect(array).to.eql([ 'categories', '18' ]);
+    proxy.productId = '1234';
+    expect(array).to.eql([ 'categories', '18', 'products', '1234', 'summary' ]);
+    expect(proxy).to.eql({ categoryId: '18', productId: '1234', productSection: 'summary' });
+    proxy.productSection = 'reviews';
+    expect(array).to.eql([ 'categories', '18', 'products', '1234', 'reviews' ]);
+    // "summary" no longer matches
+    expect(proxy).to.not.eql({ categoryId: '18', productId: '1234', productSection: 'reviews' });
+  })
+  it('should allow multiple static strings to be specified', function() {
+    const array = [ 'forums', '123', 'messages', '18' ];
+    const proxy = arrayProxy(array, {
+      categoryId: {
+        "categories": 0,
+        $: 1,
+        ...removing,
+      },
+      productId: {
+        "products": 2,
+        $: 3,
+        "summary | reviews": 4,
+        ...removing,
+      },
+      productSection: 4,
+      forumId: {
+        "forums": 0,
+        $: 1,
+        ...removing,
+      },
+      messageId: {
+        "messages": 2,
+        $: 3
+      }
+    });
+    expect(proxy).to.eql({ forumId: '123', messageId: '18' });
+    proxy.categoryId = '18';
+    expect(array).to.eql([ 'categories', '18' ]);
+    proxy.productId = '1234';
+    expect(array).to.eql([ 'categories', '18', 'products', '1234', 'summary' ]);
+    expect(proxy).to.eql({ categoryId: '18', productId: '1234', productSection: 'summary' });
+    proxy.productSection = 'reviews';
+    expect(array).to.eql([ 'categories', '18', 'products', '1234', 'reviews' ]);
+    expect(proxy).to.eql({ categoryId: '18', productId: '1234', productSection: 'reviews' });
+  })
 });

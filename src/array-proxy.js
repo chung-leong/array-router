@@ -1,7 +1,4 @@
-const removingSymbol = Symbol('removing');
-
-export const removing = {};
-removing[removingSymbol] = 0;
+export const removing = { '*': NaN };
 Object.freeze(removing);
 
 export function arrayProxy(array, descriptors) {
@@ -18,7 +15,7 @@ export function arrayProxy(array, descriptors) {
         let removingRest = false;
         let highest;
         for (const [ key, index ] of Object.entries(desc)) {
-          if (key === removingSymbol) {
+          if (key === '*') {
             removingRest = true;
             continue;
           }
@@ -26,16 +23,16 @@ export function arrayProxy(array, descriptors) {
             lowest = undefined;
             break;
           }
-          if (!(lowest >= index)) {
+          if (!(lowest <= index)) {
             lowest = index;
           }
-          if (!(highest <= index)) {
+          if (!(highest >= index)) {
             highest = index;
           }
         }
         if (removingRest) {
           // update the descriptor with the actual index
-          desc[removingSymbol] = highest + 1;
+          desc['*'] = highest + 1;
         }
       } else if ('get' in desc && 'set' in desc && Object.keys(desc) === '2') {
         // getter/setter
@@ -93,11 +90,11 @@ function extractValue(array, name, descriptors) {
     if ('$' in desc) {
       let value;
       for (const [ key, index ] of Object.entries(desc)) {
-        if (key === removingSymbol) {
+        if (key === '*') {
           // do nothing
         } else if (key === '$') {
           value = array[index];
-        } else if (array[index] !== key) {
+        } else if (!splitChoices(key).includes(array[index])) {
           value = undefined;
           break;
         }
@@ -120,14 +117,17 @@ function storeValue(array, name, descriptors, value) {
     if ('$' in desc) {
       // check to see if static strings are present
       let removingIndex;
-      for (const [ key, index ] of Object.entries(value)) {
-        if (key === removingSymbol) {
+      for (const [ key, index ] of Object.entries(desc)) {
+        if (key === '*') {
           removingIndex = index;
+        } else if (key === '$') {
+          array[index] = value;
         } else {
-          array[index] = (key === '$') ? value : key;
+          const [ first ] = splitChoices(key);
+          array[index] = first;
         }
       }
-      if (removingIndex !== -1) {
+      if (removingIndex !== undefined) {
         array.splice(removingIndex);
       }
     } else {
@@ -136,4 +136,8 @@ function storeValue(array, name, descriptors, value) {
     }
   }
   return true;
+}
+
+function splitChoices(key) {
+  return key.split(/\s*\|\s*/);
 }
