@@ -6,3 +6,7 @@ export {
 export {
   RouteError,
 } from './src/errors.js';
+export {
+  arrayProxy,
+  removing,
+} from './src/array-proxy.js';
