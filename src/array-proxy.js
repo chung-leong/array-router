@@ -123,8 +123,11 @@ function storeValue(array, name, descriptors, value) {
         } else if (key === '$') {
           array[index] = value;
         } else {
-          const [ first ] = splitChoices(key);
-          array[index] = first;
+          const choices = splitChoices(key);
+          // change it only if the current value is not in the list
+          if (!choices.includes(array[index])) {
+            array[index] = choices[0];
+          }
         }
       }
       if (removingIndex !== undefined) {

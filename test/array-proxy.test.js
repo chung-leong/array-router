@@ -171,7 +171,6 @@ describe('#arrayProxy()', function() {
         "products": 2,
         $: 3,
         "summary | reviews": 4,
-        ...removing,
       },
       productSection: 4,
       forumId: {
@@ -187,11 +186,16 @@ describe('#arrayProxy()', function() {
     expect(proxy).to.eql({ forumId: '123', messageId: '18' });
     proxy.categoryId = '18';
     expect(array).to.eql([ 'categories', '18' ]);
+    expect(proxy).to.eql({ categoryId: '18' });
     proxy.productId = '1234';
     expect(array).to.eql([ 'categories', '18', 'products', '1234', 'summary' ]);
     expect(proxy).to.eql({ categoryId: '18', productId: '1234', productSection: 'summary' });
     proxy.productSection = 'reviews';
     expect(array).to.eql([ 'categories', '18', 'products', '1234', 'reviews' ]);
     expect(proxy).to.eql({ categoryId: '18', productId: '1234', productSection: 'reviews' });
+    proxy.productId = '4321';
+    expect(proxy).to.eql({ categoryId: '18', productId: '4321', productSection: 'reviews' });
+    proxy.forumId = '777';
+    expect(array).to.eql([ 'forums', '777' ]);
   })
 });
