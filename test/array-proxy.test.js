@@ -175,45 +175,6 @@ describe('#arrayProxy()', function() {
     // "summary" no longer matches
     expect(proxy).to.not.eql({ categoryId: '18', productId: '1234', productSection: 'reviews' });
   })
-  it('should allow multiple static strings to be specified', function() {
-    const array = [ 'forums', '123', 'messages', '18' ];
-    const proxy = arrayProxy(array, {
-      categoryId: {
-        "categories": 0,
-        $: 1,
-        ...removing,
-      },
-      productId: {
-        "products": 2,
-        $: 3,
-        "summary | reviews": 4,
-      },
-      productSection: 4,
-      forumId: {
-        "forums": 0,
-        $: 1,
-        ...removing,
-      },
-      messageId: {
-        "messages": 2,
-        $: 3
-      }
-    });
-    expect(proxy).to.eql({ forumId: '123', messageId: '18' });
-    proxy.categoryId = '18';
-    expect(array).to.eql([ 'categories', '18' ]);
-    expect(proxy).to.eql({ categoryId: '18' });
-    proxy.productId = '1234';
-    expect(array).to.eql([ 'categories', '18', 'products', '1234', 'summary' ]);
-    expect(proxy).to.eql({ categoryId: '18', productId: '1234', productSection: 'summary' });
-    proxy.productSection = 'reviews';
-    expect(array).to.eql([ 'categories', '18', 'products', '1234', 'reviews' ]);
-    expect(proxy).to.eql({ categoryId: '18', productId: '1234', productSection: 'reviews' });
-    proxy.productId = '4321';
-    expect(proxy).to.eql({ categoryId: '18', productId: '4321', productSection: 'reviews' });
-    proxy.forumId = '777';
-    expect(array).to.eql([ 'forums', '777' ]);
-  })
   it('should allow the use of a getter', function() {
     const array = [ 'forums', '123', 'messages', '18' ];
     const proxy = arrayProxy(array, {

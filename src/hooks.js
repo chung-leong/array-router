@@ -106,7 +106,10 @@ export function useRouter(options = {}) {
           const link = target.closest('A');
           if (link && link.origin === window.location.origin) {
             if (!link.target && !link.download) {
-              const url = new URL(link);
+              let url = new URL(link);
+              const parts = parseParts(url.pathname, basePath, trailingSlash);
+              const query = parseQuery(url.searchParams);
+              url = createURL(router, parts, query);
               router.change(url, true);
               evt.preventDefault();
             }
@@ -127,9 +130,14 @@ export function useRouter(options = {}) {
   }, [ router ]);
   // the root component is also a route consumer, it just receive the route as arguments to
   // provide() instead of getting it as a returned value
-  const route = useRouteFrom(router, dispatch, true);
+  const [ parts, query, methods ] = useRouteFrom(router, dispatch, true);
   return (cb) => {
-    const children = cb(...route);
+    const rethrow = () => {
+      if (router.lastError) {
+        throw router.lastError;
+      }
+    };
+    const children = cb(parts, query, { ...methods, rethrow });
     // catch errors from children so we can redirect it to the root component
     const boundary = createElement(ErrorBoundary, { onError: (err) => router.setError(err) }, children);
     // provide context to any children using useRoute()
@@ -266,10 +274,11 @@ const mutatingFunctionMap = new Map([
 
 function createProxy(object, ops, state, onMutation, pushing) {
   const throwError = () => {
-    if (state.error) {
+    const { rendering, error } = state;
+    if (rendering && error) {
       // an error occurred somewhere in the tree
       // throw it (at the root level) to let the catch block deal with it
-      throw state.error;
+      throw error;
     }
   };
   const mutatingFns = mutatingFunctionMap.get(object.constructor);
@@ -321,10 +330,28 @@ function isResultDifferent(ops, object) {
   const copy = clone(object);
   for (const { name, fn, result } of ops) {
     const newResult = fn.call(copy);
-    if (newResult !== result) {
+    if (!compareResult(newResult, result)) {
       return true;
     }
   }
+}
+
+function compareResult(a, b) {
+  if (a !== b) {
+    if (Array.isArray(a) && Array.isArray(b)) {
+      if (a.length !== b.length) {
+        return false;
+      }
+      for (let i = 0; i < a.length; i++) {
+        if (a[i] !== b[i]) {
+          return false;
+        }
+      }
+    } else {
+      return false;
+    }
+  }
+  return true;
 }
 
 function parseParts(path, basePath, trailingSlash) {

@@ -61,12 +61,9 @@ export function arrayProxy(array, descriptors) {
             }
             if (key === '$') {
               value = array[index];
-            } else {
-              const choices = parseChoices(key);
-              if (!choices.includes(array[index])) {
-                value = undefined;
-                break;
-              }
+            } else if (array[index] !== key) {
+              value = undefined;
+              break;
             }
           }
         } else {
@@ -100,11 +97,7 @@ export function arrayProxy(array, descriptors) {
             if (key === '$') {
               array[index] = value;
             } else {
-              const choices = parseChoices(key);
-              // change it only if the current value is not in the list
-              if (!choices.includes(array[index])) {
-                array[index] = choices[0];
-              }
+              array[index] = key;
             }
             if (!(highest >= index)) {
               highest = index;
@@ -128,8 +121,4 @@ export function arrayProxy(array, descriptors) {
       return Object.keys(descriptors).filter(name => this.has(_, name));
     },
   });
-}
-
-function parseChoices(key) {
-  return key.split(/\s*\|\s*/);
 }

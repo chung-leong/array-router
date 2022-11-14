@@ -3,7 +3,7 @@ export async function withTestRenderer(cb) {
   let renderer;
   try {
     await cb({
-      create: (el) => act(() => renderer = create(el)),
+      render: (el) => act(() => renderer = create(el)),
       update: (el) => act(() => renderer.update(el)),
       unmount: () => act(() => renderer.unmount()),
       toJSON: () => renderer.toJSON(),

@@ -39,11 +39,21 @@ export async function withReactDOM(cb) {
       unmount: () => act(() => root.unmount()),
       root,
       node,
-      act,
+      act
     });
   } finally {
     await act(() => root.unmount());
     node.remove();
     releaseLock();
+  }
+}
+
+export async function withSilentConsole(cb) {
+  const console = global.console;
+  try {
+    global.console = new Proxy(console, { get: () => () => {} });
+    await cb();
+  } finally {
+    global.console = console;
   }
 }
