@@ -1,6 +1,6 @@
 {
   "name": "array-router",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "description": "Lightweight router for React",
   "main": "index.js",
   "type": "module",
@@ -16,8 +16,7 @@
   },
   "keywords": [
     "router",
-    "React",
-    "Preact"
+    "React"
   ],
   "author": "Chung Leong",
   "license": "MIT",
@@ -31,7 +30,6 @@
     "jsdom": "^19.0.0",
     "mocha": "^10.0.0",
     "mocha-skip-if": "^1.0.2",
-    "node-fetch": "^3.2.10",
     "react": "^18.0.0",
     "react-dom": "^18.0.0",
     "react-test-renderer": "^18.2.0"
