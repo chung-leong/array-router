@@ -1,41 +1,36 @@
-export const removing = { '*': NaN };
+export const removing = { '\b': '...' };
 Object.freeze(removing);
 
 export function arrayProxy(array, descriptors) {
+  if (!Array.isArray(array) || !descriptors || typeof(descriptors) !== 'object') {
+    throw new TypeError('Invalid argument');
+  }
   // verify that the descriptors are correct and ready them for sorting at the same time
   const list = []
   for (const [ name, desc ] of Object.entries(descriptors)) {
     let lowest;
     if (typeof(desc) === 'number') {
       // targetting a single slot
-      lowest = desc;
+      if ((desc|0) === desc && desc >= 0) {
+        lowest = desc;
+      }
     } else if (desc && typeof(desc) === 'object') {
       if ('$' in desc) {
         // targetting multiple slots: single value plus static strings
-        let removingRest = false;
-        let highest;
         for (const [ key, index ] of Object.entries(desc)) {
-          if (key === '*') {
-            removingRest = true;
+          if (key === '\b') {
             continue;
           }
-          if ((index|0) !== index || index < 0) {
+          if ((index|0) === index && index >= 0) {
+            if (!(lowest <= index)) {
+              lowest = index;
+            }
+          } else {
             lowest = undefined;
             break;
           }
-          if (!(lowest <= index)) {
-            lowest = index;
-          }
-          if (!(highest >= index)) {
-            highest = index;
-          }
         }
-        if (removingRest) {
-          // update the descriptor with the actual index
-          desc['*'] = highest + 1;
-        }
-      } else if ('get' in desc && 'set' in desc && Object.keys(desc) === '2') {
-        // getter/setter
+      } else if ('get' in desc) {
         lowest = Infinity;
       }
     }
@@ -51,96 +46,90 @@ export function arrayProxy(array, descriptors) {
     descriptors[name] = desc;
   }
   return new Proxy({}, {
-    get(_, name) {
-      return extractValue.call(this, array, name, descriptors);
-    },
-    set(_, name, value) {
-      return storeValue.call(this, array, name, descriptors, value);
-    },
-    has(_, name) {
-      const value = extractValue.call(this, array, name, descriptors);
-      return (value !== undefined);
-    },
-    ownKeys(_) {
-      const list = [];
-      for (const name of Object.keys(descriptors)) {
-        const value = extractValue.call(this, array, name, descriptors);
-        if (value !== undefined) {
-          list.push(name);
+    getOwnPropertyDescriptor(_, name) {
+      const desc = descriptors[name];
+      let value, configurable = true, enumerable = true, writable = true;
+      if (desc === undefined) {
+        return undefined;
+      } else if (typeof(desc) === 'number') {
+        value = array[desc];
+      } else if (typeof(desc) === 'object') {
+        if ('$' in desc) {
+          for (const [ key, index ] of Object.entries(desc)) {
+            if (key === '\b') {
+              continue;
+            }
+            if (key === '$') {
+              value = array[index];
+            } else {
+              const choices = parseChoices(key);
+              if (!choices.includes(array[index])) {
+                value = undefined;
+                break;
+              }
+            }
+          }
+        } else {
+          // must be getter
+          value = desc.get.call(this, array);
+          writable = 'set' in desc;
         }
       }
-      return list;
+      return (value !== undefined ) ? { value, configurable, enumerable, writable } : undefined;
     },
-    getOwnPropertyDescriptor(_, name) {
-      if (name in descriptors) {
-        const value = extractValue.call(this, array, name, descriptors);
-        return { value, configurable: true, enumerable: true, writable: true };
-      } else {
-        return {};
+    get(_, name) {
+      const desciptor = this.getOwnPropertyDescriptor(_, name);
+      return desciptor?.value;
+    },
+    set(_, name, value) {
+      const desc = descriptors[name];
+      if (desc === undefined) {
+        return false;
+      } else if (typeof(desc) === 'number') {
+        array[desc] = value;
+      } else if (typeof(desc) === 'object') {
+        if ('$' in desc) {
+          // check to see if static strings are present
+          let removing = false;
+          let highest;
+          for (const [ key, index ] of Object.entries(desc)) {
+            if (key === '\b') {
+              removing = true;
+              continue;
+            }
+            if (key === '$') {
+              array[index] = value;
+            } else {
+              const choices = parseChoices(key);
+              // change it only if the current value is not in the list
+              if (!choices.includes(array[index])) {
+                array[index] = choices[0];
+              }
+            }
+            if (!(highest >= index)) {
+              highest = index;
+            }
+          }
+          if (removing) {
+            array.splice(highest + 1);
+          }
+        } else if (desc.set) {
+          return desc.set.call(this, array, value);
+        } else {
+          return false;
+        }
       }
+      return true;
+    },
+    has(_, name) {
+      return !!this.getOwnPropertyDescriptor(_, name);
+    },
+    ownKeys(_) {
+      return Object.keys(descriptors).filter(name => this.has(_, name));
     },
   });
 }
 
-function extractValue(array, name, descriptors) {
-  const desc = descriptors[name];
-  if (typeof(desc) === 'number') {
-    return array[desc];
-  } else if (typeof(desc) === 'object') {
-    if ('$' in desc) {
-      let value;
-      for (const [ key, index ] of Object.entries(desc)) {
-        if (key === '*') {
-          // do nothing
-        } else if (key === '$') {
-          value = array[index];
-        } else if (!splitChoices(key).includes(array[index])) {
-          value = undefined;
-          break;
-        }
-      }
-      return value;
-    } else {
-      // must be getter/setter
-      return desc.get.call(this, array)
-    }
-  }
-}
-
-function storeValue(array, name, descriptors, value) {
-  const desc = descriptors[name];
-  if (desc === undefined) {
-    return false;
-  } else if (typeof(desc) === 'number') {
-    array[desc] = value;
-  } else if (typeof(desc) === 'object') {
-    if ('$' in desc) {
-      // check to see if static strings are present
-      let removingIndex;
-      for (const [ key, index ] of Object.entries(desc)) {
-        if (key === '*') {
-          removingIndex = index;
-        } else if (key === '$') {
-          array[index] = value;
-        } else {
-          const choices = splitChoices(key);
-          // change it only if the current value is not in the list
-          if (!choices.includes(array[index])) {
-            array[index] = choices[0];
-          }
-        }
-      }
-      if (removingIndex !== undefined) {
-        array.splice(removingIndex);
-      }
-    } else {
-      // must be getter/setter
-      desc.set.call(this, array, value);
-    }
-  }
-  return true;
-}
-
-function splitChoices(key) {
+function parseChoices(key) {
   return key.split(/\s*\|\s*/);
 }

@@ -6,6 +6,22 @@ import {
 } from '../index.js';
 
 describe('#arrayProxy()', function() {
+  it('should fail when non-array is given', function() {
+    expect(() => arrayProxy({}, { a: 1 })).to.throw();
+  })
+  it('should fail when descriptors are not contain in an object', function() {
+    expect(() => arrayProxy([], 5)).to.throw();
+  })
+  it('should fail when index is negative', function() {
+    expect(() => arrayProxy([], { a: -1 })).to.throw();
+    expect(() => arrayProxy([], { a: { $:-1 } })).to.throw();
+  })
+  it('should fail when index is fractional', function() {
+    expect(() => arrayProxy([], { a: 1.3 })).to.throw();
+  })
+  it('should fail when descriptor does match any', function() {
+    expect(() => arrayProxy([], { a: {} })).to.throw();
+  })
   it('should allow array elements to be read by name', function() {
     const array = [ 'alfa', 'bravo', 'charlie', 'delta' ];
     const proxy = arrayProxy(array, {
@@ -197,5 +213,52 @@ describe('#arrayProxy()', function() {
     expect(proxy).to.eql({ categoryId: '18', productId: '4321', productSection: 'reviews' });
     proxy.forumId = '777';
     expect(array).to.eql([ 'forums', '777' ]);
+  })
+  it('should allow the use of a getter', function() {
+    const array = [ 'forums', '123', 'messages', '18' ];
+    const proxy = arrayProxy(array, {
+      home: {
+        get: arr => arr.length === 0
+      },
+    });
+    expect(proxy).to.have.property('home', false);
+    const descriptor = Object.getOwnPropertyDescriptor(proxy, 'home');
+    expect(descriptor).to.have.property('writable', false);
+    expect(() => proxy.home = true).to.throw();
+  })
+  it('should allow the use of a setter', function() {
+    const array = [ 'forums', '123', 'messages', '18' ];
+    const proxy = arrayProxy(array, {
+      home: {
+        get: (arr) => arr.length === 0,
+        set: (arr, value) => { if (value) arr.splice(0); return true; },
+      },
+    });
+    expect(proxy).to.have.property('home', false);
+    const descriptor = Object.getOwnPropertyDescriptor(proxy, 'home');
+    expect(descriptor).to.have.property('writable', true);
+    proxy.home = true;
+    expect(proxy).to.have.property('home', true);
+    expect(array).to.eql([]);
+  })
+  it('should throw when setter returns falsy', function() {
+    const array = [ 'forums', '123', 'messages', '18' ];
+    const proxy = arrayProxy(array, {
+      home: {
+        get: (arr) => arr.length === 0,
+        set: (arr, value) => { if (value) arr.splice(0) },
+      },
+    });
+    expect(() => proxy.home = true).to.throw();
+  })
+  it('should not allow the setting of non-existing property', function() {
+    const array = [ 'forums', '123', 'messages', '18' ];
+    const proxy = arrayProxy(array, {
+      home: {
+        get: (arr) => arr.length === 0,
+        set: (arr, value) => { if (value) arr.splice(0); return true; },
+      },
+    });
+    expect(() => proxy.world = 'Hello').to.throw();
   })
 });
