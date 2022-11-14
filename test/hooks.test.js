@@ -7,6 +7,7 @@ import { withReactDOM, withSilentConsole } from './dom-renderer.js';
 import {
   useRouter,
   useRoute,
+  useRoutePromise,
   useLocation,
 } from '../index.js';
 
@@ -23,6 +24,44 @@ describe('#useRouter()', function() {
       await render(el);
       expect(toJSON()).to.equal('TEST');
       expect(f).to.be.a('function');
+    });
+  })
+  it('should throw when basePath is not in location', async function() {
+    await withTestRenderer(async ({ render, toJSON }) => {
+      let error;
+      function Test() {
+        try {
+          const provide = useRouter({
+            basePath: '/hallo/',
+            location: 'http://example.test/hello/world/?a=1&b=123'
+          });
+        } catch (err) {
+          error = err;
+        }
+        return 'TEST';
+      }
+      const el = createElement(Test);
+      await render(el);
+      expect(error).to.be.an('error');
+    });
+  })
+  it('should throw when basePath does not end with a trailing slash', async function() {
+    await withTestRenderer(async ({ render, toJSON }) => {
+      let error;
+      function Test() {
+        try {
+          const provide = useRouter({
+            basePath: '/hello',
+            location: 'http://example.test/hello/world/?a=1&b=123'
+          });
+        } catch (err) {
+          error = err;
+        }
+        return 'TEST';
+      }
+      const el = createElement(Test);
+      await render(el);
+      expect(error).to.be.an('error');
     });
   })
   it('should correctly parse the path and query', async function() {
@@ -138,6 +177,48 @@ describe('#useRouter()', function() {
       expect(count).to.equal(1);
       await act(() => p[1] = 'universe');
       expect(count).to.equal(1);
+    });
+  })
+  it('should render when slice returns additional items', async function() {
+    await withTestRenderer(async ({ render, toJSON, act }) => {
+      let p, q, count = 0;
+      function Test({ location }) {
+        const provide = useRouter({ location });
+        count++;
+        return provide((parts, query) => {
+          p = parts;
+          q = query;
+          return `${p.slice(0)}`;
+        });
+      }
+      const el = createElement(Test, { location: 'http://example.test/hello/world/?a=1&b=123' });
+      await render(el);
+      expect(toJSON()).to.equal('hello,world');
+      expect(count).to.equal(1);
+      await act(() => p.push('hello'));
+      expect(toJSON()).to.equal('hello,world,hello');
+      expect(count).to.equal(2);
+    });
+  })
+  it('should render when slice returns different items', async function() {
+    await withTestRenderer(async ({ render, toJSON, act }) => {
+      let p, q, count = 0;
+      function Test({ location }) {
+        const provide = useRouter({ location });
+        count++;
+        return provide((parts, query) => {
+          p = parts;
+          q = query;
+          return `${p.slice(0)}`;
+        });
+      }
+      const el = createElement(Test, { location: 'http://example.test/hello/world/?a=1&b=123' });
+      await render(el);
+      expect(toJSON()).to.equal('hello,world');
+      expect(count).to.equal(1);
+      await act(() => p.splice(1, 1, 'universe'));
+      expect(toJSON()).to.equal('hello,universe');
+      expect(count).to.equal(2);
     });
   })
   it('should intercept clicks on hyperlinks', async function() {
@@ -415,6 +496,100 @@ describe('#useRoute()', function() {
       expect(compBCount).to.equal(4);
     });
   })
+  it('should cancel updating when path gets changed back to what it was before', async function() {
+    await withTestRenderer(async ({ render, toJSON, act }) => {
+      let p, q, rootCount = 0;
+      function Root({ location }) {
+        const provide = useRouter({ location });
+        rootCount++;
+        return provide((parts, query) => {
+          p = parts;
+          q = query;
+          const compA = createElement(CompA, { key: 'a' });
+          const compB = createElement(CompB, { key: 'b' });
+          return createElement(Fragment, {}, [ `${parts[0]}`, ' ', compA, ' ', compB ]);
+        });
+      }
+      let compACount = 0;
+      function CompA() {
+        const [ parts, { a } ] = useRoute();
+        compACount++;
+        return `${parts[1]} ${a}`;
+      }
+      let compBCount = 0;
+      function CompB() {
+        const [ parts, { b } ] = useRoute();
+        compBCount++;
+        return `${parts[1]} ${b}`;
+      }
+      const el = createElement(Root, { location: 'http://example.test/hello/world/?a=1&b=123' });
+      await render(el);
+      expect(toJSON()).to.eql([ 'hello', ' ', 'world 1', ' ', 'world 123' ]);
+      expect(rootCount).to.equal(1);
+      expect(compACount).to.equal(1);
+      expect(compBCount).to.equal(1);
+      await act(() => {
+        p[1] = 'universe';
+        q.b = 178;
+        p[1] = 'world';
+        q.b = 123;
+      });
+      expect(toJSON()).to.eql([ 'hello', ' ', 'world 1', ' ', 'world 123' ]);
+      expect(rootCount).to.equal(1);
+      expect(compACount).to.equal(1);
+      expect(compBCount).to.equal(1);
+    });
+  });
+  it('should not update the root component unnecessarily when every is used', async function() {
+    await withTestRenderer(async ({ render, toJSON, act }) => {
+      let p, q, rootCount = 0;
+      function Root({ location }) {
+        const provide = useRouter({ location });
+        rootCount++;
+        return provide((parts, query) => {
+          p = parts;
+          q = query;
+          const cheese = parts.every((e, index) => index < 3) ? 'cheddar' : 'roquefort';
+          const compA = createElement(CompA, { key: 'a' });
+          const compB = createElement(CompB, { key: 'b' });
+          return createElement(Fragment, {}, [ cheese, ' ', compA, ' ', compB ]);
+        });
+      }
+      let compACount = 0;
+      function CompA() {
+        const [ parts, { a } ] = useRoute();
+        compACount++;
+        return `${parts[1]} ${a}`;
+      }
+      let compBCount = 0;
+      function CompB() {
+        const [ parts, { b } ] = useRoute();
+        compBCount++;
+        return `${parts[1]} ${b}`;
+      }
+      const el = createElement(Root, { location: 'http://example.test/hello/world/?a=1&b=123' });
+      await render(el);
+      expect(toJSON()).to.eql([ 'cheddar', ' ', 'world 1', ' ', 'world 123' ]);
+      expect(rootCount).to.equal(1);
+      expect(compACount).to.equal(1);
+      expect(compBCount).to.equal(1);
+      await act(() => p[1] = 'universe');
+      expect(toJSON()).to.eql([ 'cheddar', ' ', 'universe 1', ' ', 'universe 123' ]);
+      expect(rootCount).to.equal(1);
+      expect(compACount).to.equal(2);
+      expect(compBCount).to.equal(2);
+      await act(() => p.push('cow'));
+      expect(toJSON()).to.eql([ 'cheddar', ' ', 'universe 1', ' ', 'universe 123' ]);
+      expect(rootCount).to.equal(1);
+      expect(compACount).to.equal(2);
+      expect(compBCount).to.equal(2);
+      await act(() => p.push('goat'));
+      expect(toJSON()).to.eql([ 'roquefort', ' ', 'universe 1', ' ', 'universe 123' ]);
+      expect(rootCount).to.equal(2);
+      expect(compACount).to.equal(3);
+      expect(compBCount).to.equal(3);
+    });
+  })
   it('should receive correct info when root component changes URL while rendering', async function() {
     await withTestRenderer(async ({ render, toJSON, act }) => {
       let p, q, rootCount = 0;
@@ -664,10 +839,73 @@ describe('#useRoute()', function() {
       expect(toJSON()).to.eql([ 'world 1', ' ', 'world 144' ]);
     });
   })
-
 })
 
-describe('#useLocation', function() {
+describe('#useRoutePromise()', function() {
+  it('should throw when context is missing', async function() {
+    await withTestRenderer(async ({ render, toJSON }) => {
+      let error;
+      function Test() {
+        try {
+          useRoutePromise();
+        } catch (err) {
+          error = err;
+        }
+        return 'Test';
+      }
+      const el = createElement(Test);
+      await render(el);
+      expect(error).to.be.an('error').with.property('message', 'No router context');
+    });
+  })
+  it('should fulfill promise returned by changed when route changes', async function() {
+    await withTestRenderer(async ({ render, toJSON, act }) => {
+      let p, q, rootCount = 0;
+      function Root({ location }) {
+        const provide = useRouter({ location });
+        rootCount++;
+        return provide((parts, query) => {
+          p = parts;
+          q = query;
+          return createElement(Comp);
+        });
+      }
+      let promise, compCount = 0;
+      function Comp() {
+        const [ parts, query, { changed } ] = useRoutePromise();
+        promise = changed().then(() => {
+          promise = changed().then(() => parts[0]);
+          return parts[0];
+        });
+        compCount++;
+        return parts[0];
+      }
+      const el = createElement(Root, { location: 'http://example.test/hello/world/?a=1&b=123' });
+      await render(el);
+      const promise1 = promise;
+      const result11 = await Promise.race([ promise1, delay(10, 'timeout') ]);
+      expect(result11).to.equal('timeout');
+      act(() => {
+        p[0] = 'goodbye';
+        q.b = 1988;
+        q.c = 77;
+      });
+      const result12 = await Promise.race([ promise1, delay(10, 'timeout') ]);
+      expect(result12).to.equal('goodbye');
+      const promise2 = promise;
+      expect(promise2).to.not.equal(promise1);
+      const result21 = await Promise.race([ promise2, delay(10, 'timeout') ]);
+      expect(result21).to.equal('timeout');
+      act(() => {
+        p[0] = 'welcome';
+      });
+      const result22 = await Promise.race([ promise2, delay(10, 'timeout') ]);
+      expect(result22).to.equal('welcome');
+    });
+  })
+})
+
+describe('#useLocation()', function() {
   it('should throw when context is missing', async function() {
     await withTestRenderer(async ({ render, toJSON }) => {
       let error;
@@ -732,8 +970,42 @@ describe('#useLocation', function() {
       expect(toJSON()).to.eql('http://example.test/');
     });
   })
+  it('should receive URLs with trailing slash when that is enabled', async function() {
+    await withTestRenderer(async ({ render, toJSON, act }) => {
+      let p, q, rootCount = 0;
+      function Root({ location }) {
+        const provide = useRouter({ location, trailingSlash: true });
+        rootCount++;
+        return provide((parts, query) => {
+          p = parts;
+          q = query;
+          return createElement(Comp);
+        });
+      }
+      let compCount = 0;
+      function Comp() {
+        const url = useLocation();
+        compCount++;
+        return `${url}`
+      }
+      const el = createElement(Root, { location: 'http://example.test/hello/world/?a=1&b=123' });
+      await render(el);
+      expect(toJSON()).to.eql('http://example.test/hello/world/?a=1&b=123');
+      await act(() => p[0] = 'die', p[1] = 'universe');
+      expect(toJSON()).to.eql('http://example.test/die/universe/?a=1&b=123');
+      expect(toJSON()).to.eql('http://example.test/die/universe/?a=1&b=123');
+      await act(() => delete q.a, delete q.b);
+      expect(toJSON()).to.eql('http://example.test/die/universe/');
+      await act(() => p.splice(0));
+      expect(toJSON()).to.eql('http://example.test/');
+    });
+  })
 })
 
 function nextTick() {
   return Promise.resolve();
+}
+
+function delay(ms, value) {
+  return (new Promise(r => setTimeout(r, ms))).then(() => value);
 }

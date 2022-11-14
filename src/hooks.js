@@ -10,6 +10,9 @@ export function useRouter(options = {}) {
     trailingSlash = false,
     location,
   } = options;
+  if (!basePath.endsWith('/')) {
+    throw new Error('basePath should have a trailing slash');
+  }
   const [ count, dispatch ] = useReducer(c => c + 1, 0);
   const router = useMemo(() => {
     const router = {
@@ -153,14 +156,25 @@ export function useRoute() {
 
 export function useRoutePromise() {
   const router = useRouterContext();
-  let resolve;
-  let promise = new Promise(r => resolve = r);
+  const [ state ] = useState(() => {
+    let resolve;
+    const promise = new Promise(r => resolve = r);
+    return { promise, resolve };
+  });
   const dispatch = () => {
-    resolve();
-    promise = new Promise(r => resolve = r);
+    // copy values into underlying objects of proxies
+    const array = parts[SymbolUnderlying];
+    const object = query[SymbolUnderlying];
+    array.splice(0, array.length, ...router.parts);
+    for (const name in object) {
+      delete object[name];
+    }
+    Object.assign(object, router.query);
+    state.resolve();
+    state.promise = new Promise(r => state.resolve = r);
   };
   const [ parts, query, methods ] = useRouteFrom(router, dispatch);
-  return [ parts, query, { changed: () => promise, ...methods } ];
+  return [ parts, query, { changed: () => state.promise, ...methods } ];
 }
 
 export function useLocation() {
@@ -272,6 +286,8 @@ const mutatingFunctionMap = new Map([
   [ Object, [] ],
 ]);
 
+const SymbolUnderlying = Symbol('underlying');
+
 function createProxy(object, ops, state, onMutation, pushing) {
   const throwError = () => {
     const { rendering, error } = state;
@@ -284,6 +300,9 @@ function createProxy(object, ops, state, onMutation, pushing) {
   const mutatingFns = mutatingFunctionMap.get(object.constructor);
   return new Proxy(object, {
     get(object, name) {
+      if (name === SymbolUnderlying) {
+        return object;
+      }
       throwError();
       const value = object[name];
       if (typeof(value) === 'function') {
