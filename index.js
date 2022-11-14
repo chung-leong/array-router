@@ -1,6 +1,7 @@
 export {
   useRouter,
   useRoute,
+  useRoutePromise,
   useLocation,
 } from './src/hooks.js';
 export {

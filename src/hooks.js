@@ -1,4 +1,4 @@
-import { useMemo, useReducer, useEffect, useContext, createContext, createElement, startTransition } from 'react';
+import { useMemo, useReducer, useState, useEffect, useContext, createContext, createElement, startTransition } from 'react';
 import { ErrorBoundary } from './error-boundary.js';
 import { RouteError, RouteChangeInterruption } from './errors.js';
 
@@ -10,7 +10,7 @@ export function useRouter(options = {}) {
     trailingSlash = false,
     location,
   } = options;
-  const [ error, setError ] = useReducer((_, err) => err, null);
+  const [ count, dispatch ] = useReducer(c => c + 1, 0);
   const router = useMemo(() => {
     const router = {
       basePath,
@@ -18,6 +18,7 @@ export function useRouter(options = {}) {
       parts: null,
       query: null,
       consumers: [],
+      lastError: null,
       change(url, push) {
         if (this.location?.href !== url.href) {
           const pDiff = this.location?.pathname !== url.pathname;
@@ -29,7 +30,7 @@ export function useRouter(options = {}) {
             this.query = parseQuery(url.searchParams);
           }
           this.location = url;
-          notifyAffected(this.consumers, this, { pDiff, qDiff }, () => setError(null));
+          this.notifyConsumers({ pDiff, qDiff });
           if (typeof(window) === 'object') {
             if (push === true) {
               window.history.pushState({}, undefined, url);
@@ -38,7 +39,54 @@ export function useRouter(options = {}) {
             }
           }
         }
-      }
+      },
+      setError(error) {
+        if (error instanceof RouteChangeInterruption) {
+          // just apply the change
+          this.change(error.url, false);
+          return false;
+        }
+        this.lastError = error;
+        dispatch();
+      },
+      notifyConsumers({ pDiff, qDiff }) {
+        const { parts, query, lastError } = this;
+        const affected = this.consumers.filter(({ lOps, pOps, qOps, dispatch }) => {
+          if (lastError) {
+            return true;
+          } else if (lOps) {
+            return true;
+          } else if (pDiff && pOps && isResultDifferent(pOps, parts)) {
+            return true;
+          } else if (qDiff && qOps && isResultDifferent(qOps, query)) {
+            return true;
+          } else {
+            return false;
+          }
+        });
+        this.lastError = null;
+        if (affected.length > 0) {
+          startTransition(() => {
+            for (const consumer of affected) {
+              consumer.dispatch();
+              if (consumer.dispatch === dispatch) {
+                // don't bother notifying individual components when the root
+                // itself is updating
+                break;
+              }
+            }
+          });
+        }
+      },
+      addConsumer(consumer) {
+        this.consumers.push(consumer);
+      },
+      removeConsumer(consumer) {
+        const index = this.consumers.indexOf(consumer);
+        if (index !== -1) {
+          this.consumers.splice(index, 1);
+        }
+      },
     };
     router.change(new URL(location || globalThis.location));
     const initURL = new createURL(router, router.parts, router.query);
@@ -78,20 +126,12 @@ export function useRouter(options = {}) {
     }
   }, [ router ]);
   // the root component is also a route consumer, it just receive the route as arguments to
-  // the provide function instead of it as an array
-  const route = useRouteFrom(router, error);
+  // provide() instead of getting it as a returned value
+  const route = useRouteFrom(router, dispatch, true);
   return (cb) => {
     const children = cb(...route);
-    const errorFilter = (err) => {
-      if (err instanceof RouteChangeInterruption) {
-        // just apply the change
-        router.change(err.url, false);
-        return null;
-      }
-      return err;
-    };
     // catch errors from children so we can redirect it to the root component
-    const boundary = createElement(ErrorBoundary, { errorFilter, onError: setError }, children);
+    const boundary = createElement(ErrorBoundary, { onError: (err) => router.setError(err) }, children);
     // provide context to any children using useRoute()
     return createElement(RouterContext.Provider, { value: router }, boundary);
   };
@@ -99,7 +139,20 @@ export function useRouter(options = {}) {
 
 export function useRoute() {
   const router = useRouterContext();
-  return useRouteFrom(router);
+  const [ count, dispatch ] = useReducer(c => c + 1, 0);
+  return useRouteFrom(router, dispatch);
+}
+
+export function useRoutePromise() {
+  const router = useRouterContext();
+  let resolve;
+  let promise = new Promise(r => resolve = r);
+  const dispatch = () => {
+    resolve();
+    promise = new Promise(r => resolve = r);
+  };
+  const [ parts, query, methods ] = useRouteFrom(router, dispatch);
+  return [ parts, query, { changed: () => promise, ...methods } ];
 }
 
 export function useLocation() {
@@ -117,18 +170,17 @@ function useRouterContext() {
   return router;
 }
 
-function useRouteFrom(router, error) {
-  const [ count, dispatch ] = useReducer(c => c + 1, 0);
+function useRouteFrom(router, dispatch, atRoot = false) {
   const pOps = [], qOps = [];
   useMonitoring(router, { pOps, qOps, dispatch });
-  const state = { rendering: true, error };
+  const state = { rendering: true, error: (atRoot) ? router.lastError : null };
   useEffect(() => {
     state.rendering = false;
-  }, []);
+  });
 
   let push, pushOverride, newLocation, scheduled = false;
   const pushing = (fn) => {
-    if (rendering || pushOverride !== undefined) {
+    if (state.rendering || pushOverride !== undefined) {
       throw new Error('Cannot use pushing() in this context');
     }
     try {
@@ -146,12 +198,12 @@ function useRouteFrom(router, error) {
       pushOverride = false;
       fn();
     } finally {
-      if (rendering && newLocation) {
-        if (error === undefined) {
-          throw new RouteChangeInterruption('Rendering interrupted by route change', newLocation);
-        } else {
-          // at the root level, don't need to throw it to the error boundary
+      if (state.rendering && newLocation) {
+        if (atRoot) {
+          // no need to throw it to the error boundary
           router.change(newLocation, false);
+        } else {
+          throw new RouteChangeInterruption('Rendering interrupted by route change', newLocation);
         }
       }
       pushOverride = undefined;
@@ -161,7 +213,7 @@ function useRouteFrom(router, error) {
   const qCopy = clone(router.query);
   const onMutation = (pushDefault) => {
     const url = createURL(router, pCopy, qCopy);
-    if (!rendering) {
+    if (!state.rendering) {
       if (url.href !== router.location.href) {
         newLocation = url;
         if (!push) {
@@ -169,6 +221,7 @@ function useRouteFrom(router, error) {
         }
         if (!scheduled) {
           Promise.resolve().then(() => {
+            scheduled = false;
             if (newLocation) {
               router.change(newLocation, push);
             }
@@ -199,12 +252,9 @@ function useRouteFrom(router, error) {
 
 function useMonitoring(router, consumer) {
   useEffect(() => {
-    router.consumers.push(consumer);
+    router.addConsumer(consumer);
     return () => {
-      const index = router.consumers.indexOf(consumer);
-      if (index !== -1) {
-        router.consumers.splice(index, 1);
-      }
+      router.removeConsumer(consumer);
     };
   }, [ router, consumer ]);
 }
@@ -256,30 +306,15 @@ function createProxy(object, ops, state, onMutation, pushing) {
       throwError();
       object[name] = '' + value;
       onMutation(pushing);
+      return true;
+    },
+    deleteProperty(object, name) {
+      throwError();
+      delete object[name];
+      onMutation(pushing);
+      return true;
     },
   });
-}
-
-function notifyAffected(consumers, { parts, query }, { pDiff, qDiff }, clearError) {
-  const affected = consumers.filter(({ lOps, pOps, qOps, dispatch }) => {
-    if (lOps) {
-      return true;
-    } else if (pDiff && pOps && isResultDifferent(pOps, parts)) {
-      return true;
-    } else if (qDiff && qOps && isResultDifferent(qOps, query)) {
-      return true;
-    } else {
-      return false;
-    }
-  });
-  if (affected.length > 0) {
-    startTransition(() => {
-      clearError();
-      for (const { dispatch } of consumers) {
-        dispatch();
-      }
-    });
-  }
 }
 
 function isResultDifferent(ops, object) {

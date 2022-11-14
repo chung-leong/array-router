@@ -6,17 +6,21 @@ export class ErrorBoundary extends Component {
     this.state = { error: null };
   }
 
-  static getDerivedStateFromError(err) {
-    return { error: this.props.errorFilter(err) };
+  static getDerivedStateFromProps(props) {
+    return { error: null };
   }
 
-  componentDidCatch() {
-    if (this.state.error) {
-      this.props.onError(this.state.error);
-    }
+  static getDerivedStateFromError(error) {
+    return { error };
   }
 
   render() {
-    return !this.state.error ? this.props.children : null;
+    let { error } = this.state;
+    if (error) {
+      if (this.props.onError(error) === false) {
+        error = null;
+      }
+    }
+    return !error ? this.props.children : null;
   }
 }
