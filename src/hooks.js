@@ -291,16 +291,8 @@ export function useRoute() {
 
 export function useRoutePromise() {
   const router = useRouterContext();
-  const [ state ] = useState(() => {
-    let resolve;
-    const promise = new Promise(r => resolve = r);
-    return { promise, resolve };
-  });
-  const dispatch = () => {
-    state.resolve();
-    state.promise = new Promise(r => state.resolve = r);
-  };
-  const [ parts, query, methods ] = useRouteFrom(router, dispatch);
+  const state = usePromise();
+  const [ parts, query, methods ] = useRouteFrom(router, state.dispatch);
   return [ parts, query, { changed: () => state.promise, ...methods } ];
 }
 
@@ -308,7 +300,34 @@ export function useLocation() {
   const router = useRouterContext();
   const [ count, dispatch ] = useReducer(c => c + 1, 0);
   useMonitoring(router, { lOps: true, dispatch });
-  return router.location;
+  return new URL(router.location);
+}
+
+export function useLocationPromise() {
+  const router = useRouterContext();
+  const state = usePromise();
+  const location = new URL(router.location);
+  location.changed = () => state.promise;
+  const dispatch = () => {
+    // update the URL first then fulfill the promise
+    location.href = router.location.href;
+    state.dispatch();
+  };
+  useMonitoring(router, { lOps: true, dispatch });
+  return location;
+}
+
+function usePromise() {
+  const [ state ] = useState(() => {
+    let resolve;
+    const promise = new Promise(r => resolve = r);
+    return { promise, resolve, dispatch: null };
+  });
+  state.dispatch = () => {
+    state.resolve();
+    state.promise = new Promise(r => state.resolve = r);
+  };
+  return state;
 }
 
 function useRouterContext() {
