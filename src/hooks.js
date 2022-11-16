@@ -1,4 +1,5 @@
-import { useMemo, useReducer, useState, useEffect, useContext, createContext, createElement, startTransition } from 'react';
+import { useMemo, useReducer, useState, useEffect, useInsertionEffect, useContext,
+  createContext, createElement, startTransition } from 'react';
 import { ErrorBoundary } from './error-boundary.js';
 import { RouteError, RouteChangeInterruption } from './errors.js';
 
@@ -7,8 +8,11 @@ const RouterContext = createContext();
 export function useRouter(options = {}) {
   const {
     basePath = '/',
-    trailingSlash = false,
     location,
+    trailingSlash = false,
+    allowExtraParts = false,
+    keepExtraQuery = [],
+    on404,
   } = options;
   if (!basePath.endsWith('/')) {
     throw new Error('basePath should have a trailing slash');
@@ -21,6 +25,7 @@ export function useRouter(options = {}) {
       parts: null,
       query: null,
       consumers: [],
+      removed: [],
       lastError: null,
       change(url, push) {
         if (this.location?.href !== url.href) {
@@ -73,8 +78,7 @@ export function useRouter(options = {}) {
             for (const consumer of affected) {
               consumer.dispatch();
               if (consumer.dispatch === dispatch) {
-                // don't bother notifying individual components when the root
-                // itself is updating
+                // don't bother notifying individual components when the root itself going to be updated
                 break;
               }
             }
@@ -88,6 +92,9 @@ export function useRouter(options = {}) {
         const index = this.consumers.indexOf(consumer);
         if (index !== -1) {
           this.consumers.splice(index, 1);
+          if (keepExtraQuery !== true) {
+            this.removed.push(consumer);
+          }
         }
       },
     };
@@ -141,11 +148,94 @@ export function useRouter(options = {}) {
       }
     };
     const children = cb(parts, query, { ...methods, rethrow });
+    // inspection component
+    const inspection = createElement(RouterInspection, { router, allowExtraParts, keepExtraQuery });
     // catch errors from children so we can redirect it to the root component
-    const boundary = createElement(ErrorBoundary, { onError: (err) => router.setError(err) }, children);
+    const boundary = createElement(ErrorBoundary, { onError: (err) => router.setError(err) }, children, inspection);
     // provide context to any children using useRoute()
     return createElement(RouterContext.Provider, { value: router }, boundary);
   };
+}
+
+function RouterInspection({ router, allowExtraParts, keepExtraQuery }) {
+  const [ count, dispatch ] = useReducer(c => c + 1, 0);
+  // hook runs everytime dispatch is invoked
+  useEffect(() => {
+    if (!router.lastError) {
+      if (!allowExtraParts) {
+        const { parts, consumers } = router;
+        if (parts.length > 0) {
+          const copy = [ ...parts ];
+          const extra = [];
+          let needed = false;
+          do {
+            // pop off an item and see if we get different results
+            const part = copy.pop();
+            for (const { pOps } of consumers) {
+              if (pOps && isResultDifferent(pOps, copy)) {
+                needed = true;
+                break;
+              }
+            }
+            if (!needed) {
+              extra.unshift(part);
+            }
+          } while (copy.length > 0 && !needed);
+          if (extra.length > 0) {
+            router.setError(new RouteError(router.location));
+          }
+        }
+      }
+      if (keepExtraQuery !== true) {
+        const { parts, query, removed, consumers } = router;
+        const keys = [];
+        while (removed.length > 0) {
+          const { qOps } = removed.pop();
+          if (qOps) {
+            for (const { name } of qOps) {
+              if (name && !keys.includes(name))  {
+                if (!Array.isArray(keepExtraQuery) || !keepExtraQuery.includes(name)) {
+                  keys.push(name);
+                }
+              }
+            }
+          }
+        }
+        if (keys.length > 0) {
+          const copy = { ...query };
+          const extra = [];
+          do {
+            // remove a prop and see if we get different results
+            let needed = false;
+            const key = keys.pop();
+            delete copy[key];
+            for (const { qOps } of consumers) {
+              if (qOps && isResultDifferent(qOps, copy)) {
+                needed = true;
+                break;
+              }
+            }
+            if (!needed) {
+              extra.unshift(key);
+            }
+          } while (keys.length > 0);
+          if (extra.length > 0) {
+            const newQuery = { ...query };
+            for (const name of extra) {
+              delete newQuery[name];
+            }
+            const url = createURL(router, parts, newQuery);
+            router.change(url, false);
+          }
+        }
+      }
+    }
+    const consumer = { lOps: true, dispatch };
+    router.addConsumer(consumer);
+    return () => {
+      router.removeConsumer(consumer);
+    };
+  });
 }
 
 export function useRoute() {
@@ -273,12 +363,14 @@ function useRouteFrom(router, dispatch, atRoot = false) {
 }
 
 function useMonitoring(router, consumer) {
-  useEffect(() => {
+  // using useInsertionEffect here so that the useEffect hook of RouterInspection will
+  // see the consumer created by the root component
+  useInsertionEffect(() => {
     router.addConsumer(consumer);
     return () => {
       router.removeConsumer(consumer);
     };
-  }, [ router, consumer ]);
+  });
 }
 
 const mutatingFunctionMap = new Map([
@@ -312,7 +404,7 @@ function createProxy(object, ops, state, onMutation, pushing) {
           const result = fn.call(object);
           if (state.rendering) {
             // log the function call
-            ops.push({ name, fn, result });
+            ops.push({ fn, result });
           }
           if (mutatingFns.includes(name)) {
             onMutation(pushing);
@@ -321,13 +413,11 @@ function createProxy(object, ops, state, onMutation, pushing) {
         };
       } else {
         // log the retrieval operation
-        const fn = function() { return this[name] };
-        const result = fn.call(object);
         if (state.rendering) {
-          // log the function call
-          ops.push({ name, fn, result })
+          // log the retrieval
+          ops.push({ name, result: value })
         }
-        return result;
+        return value;
       }
     },
     set(object, name, value) {
@@ -348,7 +438,7 @@ function createProxy(object, ops, state, onMutation, pushing) {
 function isResultDifferent(ops, object) {
   const copy = clone(object);
   for (const { name, fn, result } of ops) {
-    const newResult = fn.call(copy);
+    const newResult = fn ? fn.call(copy) : copy[name];
     if (!compareResult(newResult, result)) {
       return true;
     }

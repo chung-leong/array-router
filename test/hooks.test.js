@@ -72,12 +72,12 @@ describe('#useRouter()', function() {
         return provide((parts, query) => {
           p = parts;
           q = query;
-          return 'TEST';
+          return `TEST ${parts.length}`;
         });
       }
       const el = createElement(Test, { location: 'http://example.test/hello/world/?a=1&b=123' });
       await render(el);
-      expect(toJSON()).to.equal('TEST');
+      expect(toJSON()).to.equal('TEST 2');
       expect(p).to.eql([ 'hello', 'world' ]);
       expect(q).to.eql({ a: '1', b: '123' });
       expect(Object.keys(p)).to.eql([ '0', '1' ]);
@@ -94,12 +94,12 @@ describe('#useRouter()', function() {
           return provide((parts, query) => {
             p = parts;
             q = query;
-            return 'TEST';
+            return `TEST ${parts.length}`;
           });
         }
         const el = createElement(Test);
         await render(el);
-        expect(toJSON()).to.equal('TEST');
+        expect(toJSON()).to.equal('TEST 2');
         expect(p).to.eql([ 'hello', 'world' ]);
         expect(q).to.eql({ a: '1', b: '123' });
         expect(Object.keys(p)).to.eql([ '0', '1' ]);
@@ -137,7 +137,7 @@ describe('#useRouter()', function() {
     await withTestRenderer(async ({ render, toJSON, act }) => {
       let p, q, count = 0;
       function Test({ location }) {
-        const provide = useRouter({ location });
+        const provide = useRouter({ location, allowExtraParts: true });
         count++;
         return provide((parts, query) => {
           p = parts;
@@ -163,7 +163,7 @@ describe('#useRouter()', function() {
     await withTestRenderer(async ({ render, toJSON, act }) => {
       let p, q, count = 0;
       function Test({ location }) {
-        const provide = useRouter({ location });
+        const provide = useRouter({ location, allowExtraParts: true });
         count++;
         return provide((parts, query) => {
           p = parts;
@@ -292,7 +292,7 @@ describe('#useRouter()', function() {
     });
   })
   it('should replace location by default when changing query variables', async function() {
-    await withJSDOM('http://example.test/hello/world/?a=1&b=123', async function() {
+    await withJSDOM('http://example.test/hello/?a=1&b=123', async function() {
       await withReactDOM(async ({ render, node, act }) => {
         let p, q;
         function Test() {
@@ -318,7 +318,7 @@ describe('#useRouter()', function() {
     });
   })
   it('should do push when pushing is used', async function() {
-    await withJSDOM('http://example.test/hello/world/?a=1&b=123', async function() {
+    await withJSDOM('http://example.test/hello/?a=1&b=123', async function() {
       await withReactDOM(async ({ render, node, act }) => {
         let p, q, m;
         function Test() {
@@ -544,7 +544,7 @@ describe('#useRoute()', function() {
     await withTestRenderer(async ({ render, toJSON, act }) => {
       let p, q, rootCount = 0;
       function Root({ location }) {
-        const provide = useRouter({ location });
+        const provide = useRouter({ location, allowExtraParts: true });
         rootCount++;
         return provide((parts, query) => {
           p = parts;
@@ -839,6 +839,117 @@ describe('#useRoute()', function() {
       expect(toJSON()).to.eql([ 'world 1', ' ', 'world 144' ]);
     });
   })
+  it('should trigger 404 error when path has parts going untouched', async function() {
+    await withTestRenderer(async ({ render, toJSON, act }) => {
+      let p;
+      function Root({ location }) {
+        const provide = useRouter({ location });
+        return provide((parts) => {
+          p = parts;
+          try {
+            if (parts[0] === 'hello') {
+              return createElement(CompA);
+            } else {
+              return createElement(CompB);
+            }
+          } catch (err) {
+            return err.message;
+          }
+        });
+      }
+      function CompA() {
+        const [ parts, { a } ] = useRoute();
+        return `${parts[1]} ${a}`;
+      }
+      function CompB() {
+        const [ parts, { b } ] = useRoute();
+        return `${parts[1]} ${b}`;
+      }
+      const el = createElement(Root, { location: 'http://example.test/hello/world/bagel?a=1&b=123' });
+      await render(el);
+      expect(toJSON()).to.equal('Page not found: /hello/world/bagel');
+    });
+  })
+  it('should removed query variables no longer being used', async function() {
+    await withTestRenderer(async ({ render, toJSON, act }) => {
+      let p;
+      function Root({ location }) {
+        const provide = useRouter({ location });
+        return provide((parts) => {
+          p = parts;
+          try {
+            if (parts[0] === 'hello') {
+              return createElement(CompA);
+            } else {
+              return createElement(CompB);
+            }
+          } catch (err) {
+            return err.message;
+          }
+        });
+      }
+      function CompA() {
+        const [ parts, { a } ] = useRoute();
+        return `${parts[1]} ${a}`;
+      }
+      function CompB() {
+        const [ parts, { b } ] = useRoute();
+        return `${parts[1]} ${b}`;
+      }
+      const el = createElement(Root, { location: 'http://example.test/hello/world/?a=1&b=123' });
+      await render(el);
+      expect(toJSON()).to.equal('world 1');
+      await act(() => p[0] = 'goodbye');
+      expect(toJSON()).to.equal('world 123');
+      await act(() => p[0] = 'hello');
+      expect(toJSON()).to.equal('world undefined');
+    });
+  })
+  it('should retain query variables on whitelist', async function() {
+    await withTestRenderer(async ({ render, toJSON, act }) => {
+      let p;
+      function Root({ location }) {
+        const provide = useRouter({ location, keepExtraQuery: [ 'a', 'b', 'c' ] });
+        return provide((parts) => {
+          p = parts;
+          try {
+            if (parts[0] === 'hello') {
+              return createElement(CompA);
+            } else if (parts[0] === 'goodbye') {
+              return createElement(CompB);
+            } else {
+              return createElement(CompC);
+            }
+          } catch (err) {
+            return err.message;
+          }
+        });
+      }
+      function CompA() {
+        const [ parts, { a } ] = useRoute();
+        return `${parts[1]} ${a}`;
+      }
+      function CompB() {
+        const [ parts, { b } ] = useRoute();
+        return `${parts[1]} ${b}`;
+      }
+      function CompC() {
+        const [ parts ] = useRoute();
+        const location = useLocation();
+        return `${parts[1]} ${location}`;
+      }
+      const el = createElement(Root, { location: 'http://example.test/hello/world/?a=1&b=123&c=77' });
+      await render(el);
+      expect(toJSON()).to.equal('world 1');
+      await act(() => p[0] = 'goodbye');
+      expect(toJSON()).to.equal('world 123');
+      await act(() => p[0] = 'hello');
+      expect(toJSON()).to.equal('world 1');
+      await act(() => p[0] = 'die');
+      // note the lack of trailing slash
+      expect(toJSON()).to.equal('world http://example.test/die/world?a=1&b=123&c=77');
+    });
+  })
 })
 
 describe('#useRoutePromise()', function() {
@@ -862,7 +973,7 @@ describe('#useRoutePromise()', function() {
     await withTestRenderer(async ({ render, toJSON, act }) => {
       let p, q, rootCount = 0;
       function Root({ location }) {
-        const provide = useRouter({ location });
+        const provide = useRouter({ location, allowExtraParts: true });
         rootCount++;
         return provide((parts, query) => {
           p = parts;
