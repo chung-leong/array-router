@@ -2,7 +2,8 @@ import { expect } from 'chai';
 import { createElement, Fragment } from 'react';
 import { withTestRenderer } from './test-renderer.js';
 import { withJSDOM } from './jsdom.js';
-import { withReactDOM, withSilentConsole } from './dom-renderer.js';
+import { withReactDOM } from './dom-renderer.js';
+import { withSilentConsole } from './error-handling.js';
 
 import {
   useRouter,
@@ -219,6 +220,34 @@ describe('#useRouter()', function() {
       await act(() => p.splice(1, 1, 'universe'));
       expect(toJSON()).to.equal('hello,universe');
       expect(count).to.equal(2);
+    });
+  })
+  it('should be able to correct a 404 error', async function() {
+    await withTestRenderer(async ({ render, toJSON, act }) => {
+      let called = false;
+      function Root({ location }) {
+        const provide = useRouter({ location, on404: (err, parts, query) => {
+          parts[1] = 'universe';
+          called = true;
+          return false;
+        }});
+        return provide((parts, query) => {
+          return createElement(Comp);
+        });
+      }
+      function Comp() {
+        const [ parts, query, { throw404 } ] = useRoute();
+        if (parts[1] === 'world') {
+          throw404();
+        }
+        return `${parts[0]} ${parts[1]}`;
+      }
+      await withSilentConsole(async () => {
+        const el = createElement(Root, { location: 'http://example.test/hello/world/?a=1&b=123' });
+        await render(el);
+        expect(toJSON()).to.equal('hello universe');
+        expect(called).to.be.true;
+      });
     });
   })
   it('should intercept clicks on hyperlinks', async function() {
