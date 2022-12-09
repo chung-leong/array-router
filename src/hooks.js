@@ -1,5 +1,5 @@
-import { useMemo, useReducer, useState, useEffect, useInsertionEffect, useContext,
-  createContext, createElement, startTransition } from 'react';
+import { useMemo, useReducer, useState, useEffect, useInsertionEffect, useContext, useTransition,
+  createContext, createElement } from 'react';
 import { ErrorBoundary } from './error-boundary.js';
 import { RouteError, RouteChangeInterruption } from './errors.js';
 
@@ -13,15 +13,16 @@ class Router {
   consumers = [];
   removed = [];
   lastError = null;
+  startTransition = null;
   onUpdate = null;
   on404 = null;
 
-  constructor(location, basePath, trailingSlash, onUpdate, on404) {
+  constructor({ location, basePath, trailingSlash, onUpdate, on404 }) {
     this.basePath = basePath;
     this.trailer = (trailingSlash) ? '/' : '';
     this.onUpdate = onUpdate;
     this.on404 = on404;
-    const url = new URL(location ?? globalThis.location);
+    const url = new URL(location ?? globalThis.location); // eslint-disable-line no-undef
     this.location = new URL(url.origin);
     this.change(url, false, true);
   }
@@ -136,7 +137,7 @@ class Router {
     });
     this.lastError = null;
     if (affected.length > 0) {
-      startTransition(() => {
+      this.startTransition(() => {
         for (const consumer of affected) {
           consumer.dispatch();
           if (consumer.atRoot) {
@@ -179,11 +180,11 @@ class Router {
         const url = new URL(window.location)
         this.change(url);
       };
-      window.addEventListener('click', onLinkClick);
-      window.addEventListener('popstate', onPopState);
+      window.addEventListener('click', onLinkClick, true);
+      window.addEventListener('popstate', onPopState, true);
       return () => {
-        window.removeEventListener('click', onLinkClick);
-        window.removeEventListener('popstate', onPopState);
+        window.removeEventListener('click', onLinkClick, true);
+        window.removeEventListener('popstate', onPopState, true);
       };
     }
   }
@@ -195,6 +196,7 @@ export function useRouter(options = {}) {
     location,
     trailingSlash = false,
     allowExtraParts = false,
+    transitionLimit = 50,
     keepExtraQuery = [],
     on404,
   } = options;
@@ -203,7 +205,7 @@ export function useRouter(options = {}) {
   }
   const [ count, dispatch ] = useReducer(c => c + 1, 0);
   const router = useMemo(() => {
-    return new Router(location, basePath, trailingSlash, dispatch, on404);
+    return new Router({ location, basePath, trailingSlash, onUpdate: dispatch, on404 });
   }, [ location, basePath, trailingSlash, on404 ]);
   useEffect(() => router.attachListeners(), [ router ]);
   // the root component is also a route consumer, it just receive the route as arguments to
@@ -216,13 +218,28 @@ export function useRouter(options = {}) {
       }
     };
     const children = cb(parts, query, { ...methods, rethrow });
+    // transition component
+    const transition = createElement(RouterTransition, { router, transitionLimit });
     // inspection component
     const inspection = createElement(RouterInspection, { router, allowExtraParts, keepExtraQuery });
     // catch errors from children so we can redirect it to the root component
-    const boundary = createElement(ErrorBoundary, { onError: (err) => router.setError(err) }, children, inspection);
+    const boundary = createElement(ErrorBoundary, { onError: (err) => router.setError(err) }, children, transition, inspection);
     // provide context to any children using useRoute()
     return createElement(RouterContext.Provider, { value: router }, boundary);
   };
+}
+
+function RouterTransition({ router, transitionLimit }) {
+  const [ isPending, startTransition ] = useTransition();
+  const [ callback, setCallback ] = useState();
+  router.startTransition = (cb) => {
+    startTransition(cb);
+    setCallback(() => cb);
+  };
+  useEffect(() => {
+    const timeout = (callback && isPending) ? setTimeout(callback, transitionLimit) : 0;
+    return () => clearTimeout(timeout);
+  }, [ callback, isPending ]);
 }
 
 function RouterInspection({ router, allowExtraParts, keepExtraQuery }) {
@@ -289,45 +306,11 @@ export function useRoute() {
   return useRouteFrom(router, dispatch);
 }
 
-export function useRoutePromise() {
-  const router = useRouterContext();
-  const state = usePromise();
-  const [ parts, query, methods ] = useRouteFrom(router, state.dispatch);
-  return [ parts, query, { changed: () => state.promise, ...methods } ];
-}
-
 export function useLocation() {
   const router = useRouterContext();
   const [ count, dispatch ] = useReducer(c => c + 1, 0);
   useMonitoring(router, { lOps: true, dispatch });
   return new URL(router.location);
-}
-
-export function useLocationPromise() {
-  const router = useRouterContext();
-  const state = usePromise();
-  const location = new URL(router.location);
-  location.changed = () => state.promise;
-  const dispatch = () => {
-    // update the URL first then fulfill the promise
-    location.href = router.location.href;
-    state.dispatch();
-  };
-  useMonitoring(router, { lOps: true, dispatch });
-  return location;
-}
-
-function usePromise() {
-  const [ state ] = useState(() => {
-    let resolve;
-    const promise = new Promise(r => resolve = r);
-    return { promise, resolve, dispatch: null };
-  });
-  state.dispatch = () => {
-    state.resolve();
-    state.promise = new Promise(r => state.resolve = r);
-  };
-  return state;
 }
 
 function useRouterContext() {
@@ -358,7 +341,6 @@ function useRouteFrom(router, dispatch, atRoot = false) {
     if (atRoot && rendering && lastError) {
       throw lastError;
     }
-    return rendering;
   }
 
   function onMutation(proxy) {
@@ -462,7 +444,7 @@ function createProxy(object, ops, onAccess, onMutation) {
   const mutatingFns = mutatingFunctionMap.get(object.constructor);
   const proxy = new Proxy(object, {
     get(object, name) {
-      const rendering = onAccess();
+      onAccess();
       let copy = getProxyCopy(proxy, object, true);
       const value = copy[name];
       if (typeof(value) === 'function') {
@@ -475,21 +457,17 @@ function createProxy(object, ops, onAccess, onMutation) {
             copy = getProxyCopy(proxy, object, false);
           }
           const result = fn.call(copy);
-          if (rendering) {
-            // log the function call
-            ops.push({ fn, result });
-          }
           if (mutating) {
             onMutation(proxy);
+          } else {
+            // log the function call
+            ops.push({ fn, result });
           }
           return result;
         };
       } else {
-        // log the retrieval operation
-        if (rendering) {
-          // log the retrieval
-          ops.push({ name, result: value })
-        }
+        // log the retrieval
+        ops.push({ name, result: value })
         return value;
       }
     },

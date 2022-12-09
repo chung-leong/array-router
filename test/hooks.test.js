@@ -8,9 +8,7 @@ import { withSilentConsole } from './error-handling.js';
 import {
   useRouter,
   useRoute,
-  useRoutePromise,
   useLocation,
-  useLocationPromise,
 } from '../index.js';
 
 describe('#useRouter()', function() {
@@ -982,70 +980,6 @@ describe('#useRoute()', function() {
   })
 })
 
-describe('#useRoutePromise()', function() {
-  it('should throw when context is missing', async function() {
-    await withTestRenderer(async ({ render, toJSON }) => {
-      let error;
-      function Test() {
-        try {
-          useRoutePromise();
-        } catch (err) {
-          error = err;
-        }
-        return 'Test';
-      }
-      const el = createElement(Test);
-      await render(el);
-      expect(error).to.be.an('error').with.property('message', 'No router context');
-    });
-  })
-  it('should fulfill promise returned by changed when route changes', async function() {
-    await withTestRenderer(async ({ render, toJSON, act }) => {
-      let p, q, rootCount = 0;
-      function Root({ location }) {
-        const provide = useRouter({ location, allowExtraParts: true });
-        rootCount++;
-        return provide((parts, query) => {
-          p = parts;
-          q = query;
-          return createElement(Comp);
-        });
-      }
-      let promise, compCount = 0;
-      function Comp() {
-        const [ parts, query, { changed } ] = useRoutePromise();
-        promise = changed().then(() => {
-          promise = changed().then(() => parts[0]);
-          return parts[0];
-        });
-        compCount++;
-        return parts[0];
-      }
-      const el = createElement(Root, { location: 'http://example.test/hello/world/?a=1&b=123' });
-      await render(el);
-      const promise1 = promise;
-      const result11 = await Promise.race([ promise1, delay(10, 'timeout') ]);
-      expect(result11).to.equal('timeout');
-      act(() => {
-        p[0] = 'goodbye';
-        q.b = 1988;
-        q.c = 77;
-      });
-      const result12 = await Promise.race([ promise1, delay(10, 'timeout') ]);
-      expect(result12).to.equal('goodbye');
-      const promise2 = promise;
-      expect(promise2).to.not.equal(promise1);
-      const result21 = await Promise.race([ promise2, delay(10, 'timeout') ]);
-      expect(result21).to.equal('timeout');
-      act(() => {
-        p[0] = 'welcome';
-      });
-      const result22 = await Promise.race([ promise2, delay(10, 'timeout') ]);
-      expect(result22).to.equal('welcome');
-    });
-  })
-})
-
 describe('#useLocation()', function() {
   it('should throw when context is missing', async function() {
     await withTestRenderer(async ({ render, toJSON }) => {
@@ -1139,70 +1073,6 @@ describe('#useLocation()', function() {
       expect(toJSON()).to.eql('http://example.test/die/universe/');
       await act(() => p.splice(0));
       expect(toJSON()).to.eql('http://example.test/');
-    });
-  })
-})
-
-describe('#useLocationPromise()', function() {
-  it('should throw when context is missing', async function() {
-    await withTestRenderer(async ({ render, toJSON }) => {
-      let error;
-      function Test() {
-        try {
-          useLocationPromise();
-        } catch (err) {
-          error = err;
-        }
-        return 'Test';
-      }
-      const el = createElement(Test);
-      await render(el);
-      expect(error).to.be.an('error').with.property('message', 'No router context');
-    });
-  })
-  it('should fulfill promise returned by changed when route changes', async function() {
-    await withTestRenderer(async ({ render, toJSON, act }) => {
-      let p, q, rootCount = 0;
-      function Root({ location }) {
-        const provide = useRouter({ location, allowExtraParts: true });
-        rootCount++;
-        return provide((parts, query) => {
-          p = parts;
-          q = query;
-          return createElement(Comp);
-        });
-      }
-      let promise, compCount = 0;
-      function Comp() {
-        const location = useLocationPromise();
-        promise = location.changed().then(() => {
-          promise = location.changed().then(() => location);
-          return location;
-        });
-        compCount++;
-        return location.href;
-      }
-      const el = createElement(Root, { location: 'http://example.test/hello/world/?a=1&b=123' });
-      await render(el);
-      const promise1 = promise;
-      const result11 = await Promise.race([ promise1, delay(10, 'timeout') ]);
-      expect(result11.toString()).to.equal('timeout');
-      act(() => {
-        p[0] = 'goodbye';
-        q.b = 1988;
-        q.c = 77;
-      });
-      const result12 = await Promise.race([ promise1, delay(10, 'timeout') ]);
-      expect(result12.toString()).to.equal('http://example.test/goodbye/world?a=1&b=1988&c=77');
-      const promise2 = promise;
-      expect(promise2).to.not.equal(promise1);
-      const result21 = await Promise.race([ promise2, delay(10, 'timeout') ]);
-      expect(result21.toString()).to.equal('timeout');
-      act(() => {
-        p[0] = 'welcome';
-      });
-      const result22 = await Promise.race([ promise2, delay(10, 'timeout') ]);
-      expect(result22.toString()).to.equal('http://example.test/welcome/world?a=1&b=1988&c=77');
     });
   })
 })
