@@ -1,4 +1,4 @@
-# Array-router ![ci](https://img.shields.io/github/workflow/status/chung-leong/array-router/Node.js%20CI?label=Node.js%20CI&logo=github) ![nycrc config on GitHub](https://img.shields.io/nycrc/chung-leong/array-router)
+# Array-router ![ci](https://img.shields.io/github/actions/workflow/status/chung-leong/array-router/node.js.yml?branch=main&label=Node.js%20CI&logo=github) ![nycrc config on GitHub](https://img.shields.io/nycrc/chung-leong/array-router)
 
 Array-route is a simple, light-weight library that helps you manage routes in your React application.
 
