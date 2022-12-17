@@ -1,4 +1,4 @@
-import { useMemo, useReducer, useState, useEffect, useInsertionEffect, useContext, useTransition,
+import { useMemo, useReducer, useState, useRef, useCallback, useEffect, useInsertionEffect, useContext, useTransition,
   createContext, createElement } from 'react';
 import { ErrorBoundary } from './error-boundary.js';
 import { RouteError, RouteChangeInterruption } from './errors.js';
@@ -190,6 +190,87 @@ class Router {
   }
 }
 
+class RouteComponent {
+  static mutatingFunctions = new Map([
+    [ Array, [ 'copyWithin', 'fill', 'pop', 'push', 'reverse', 'shift', 'sort', 'splice', 'unshift' ] ],
+    [ Object, [] ],
+  ]);
+
+  constructor(source) {
+    this.source = source;
+    this.shadow = null;
+    this.ops = [];
+    this.proxy = new Proxy(source, {
+      get: (_, name) => this.get(name),
+      set: (_, name, value) => this.set(name, value),
+      deleteProperty: (_, name) => this.delete(name)
+    });
+    this.mutatingFns = RouteComponent.mutatingFunctions.get(source.constructor);
+  }
+
+  get(name) {
+    this.onAccess?.();
+    let object = this.current();
+    const value = object[name];
+    if (typeof(value) === 'function') {
+      // return a function that call the array's method and log the operation
+      const self = this;
+      return function(...args) {
+        const fn = function() { return value.apply(this, args) };
+        const mutating = self.mutatingFns.includes(name);
+        if (mutating) {
+          // function is going to mutate the object, need to use a copy
+          object = self.copy();
+        }
+        const result = fn.call(object);
+        if (mutating) {
+          self.onMutation?.();
+        } else {
+          // log the function call
+          self.ops.push({ fn, result });
+        }
+        return result;
+      };
+    } else {
+      // log the retrieval
+      this.ops.push({ name, result: value })
+      return value;
+    }
+  }
+
+  set(name, value) {
+    this.onAccess?.();
+    const object = this.copy();
+    object[name] = '' + value;
+    this.onMutation?.();
+    return true;
+  }
+
+  delete(name) {
+    this.onAccess?.();
+    const object = this.copy();
+    delete object[name];
+    this.onMutation?.();
+    return true;
+  }
+
+  current() {
+    return this.shadow ?? this.source;
+  }
+
+  copy() {
+    if (!this.shadow) {
+      this.shadow = clone(this.source);
+    }
+    return this.shadow;
+  }
+
+  clear() {
+    this.shadow = null;
+    this.ops = [];
+  }
+}
+
 export function useRouter(options = {}) {
   const {
     basePath = '/',
@@ -211,13 +292,13 @@ export function useRouter(options = {}) {
   // the root component is also a route consumer, it just receive the route as arguments to
   // provide() instead of getting it as a returned value
   const [ parts, query, methods ] = useRouteFrom(router, dispatch, true);
-  return (cb) => {
-    const rethrow = () => {
+  const provide = useCallback((cb) => {
+    methods.rethrow = () => {
       if (router.lastError) {
         throw router.lastError;
       }
     };
-    const children = cb(parts, query, { ...methods, rethrow });
+    const children = cb(parts, query, methods);
     // transition component
     const transition = createElement(RouterTransition, { router, transitionLimit });
     // inspection component
@@ -226,7 +307,8 @@ export function useRouter(options = {}) {
     const boundary = createElement(ErrorBoundary, { onError: (err) => router.setError(err) }, children, transition, inspection);
     // provide context to any children using useRoute()
     return createElement(RouterContext.Provider, { value: router }, boundary);
-  };
+  }, [ methods, router, allowExtraParts, transitionLimit, keepExtraQuery ]);
+  return provide;
 }
 
 function RouterTransition({ router, transitionLimit }) {
@@ -310,7 +392,7 @@ export function useLocation() {
   const router = useRouterContext();
   const [ count, dispatch ] = useReducer(c => c + 1, 0);
   useMonitoring(router, { lOps: true, dispatch });
-  return new URL(router.location);
+  return router.location;
 }
 
 function useRouterContext() {
@@ -323,37 +405,36 @@ function useRouterContext() {
 
 function useRouteFrom(router, dispatch, atRoot = false) {
   const { parts, query, lastError, location } = router;
-  // operation logs the proxies write into; they will determine whether dispatch needs
+  // create proxies, making them invariant
+  const pComp = useMemo(() => new RouteComponent(parts), [ parts ]);
+  const qComp = useMemo(() => new RouteComponent(query), [ query ]);
+  // clear the operation log used to determine whether dispatch needs
   // to be invoked when the route changes
-  const pOps = [], qOps = [];
-  useMonitoring(router, { pOps, qOps, dispatch, atRoot });
+  pComp.clear();
+  qComp.clear();
+  useMonitoring(router, { pOps: pComp.ops, qOps: qComp.ops, dispatch, atRoot });
   // track whether the component is rendering
   let rendering = true;
   useEffect(() => { rendering = false });
 
-  // create the proxy objects, which calls a couple callbacks
-  const pProxy = createProxy(parts, pOps, onAccess, onMutation);
-  const qProxy = createProxy(query, qOps, onAccess, onMutation);
-  let push, pushOverride, newLocation, scheduled = false;
 
-  function onAccess() {
+  pComp.onAccess = qComp.onAccess = function() {
     // at the root level, touching the proxies will cause the last error to be thrown during rendering
     if (atRoot && rendering && lastError) {
       throw lastError;
     }
-  }
+  };
 
-  function onMutation(proxy) {
-    const pushDefault = (proxy === pProxy) ? true : false;
+  let push, pushOverride, newLocation, scheduled = false;
+  pComp.onMutation = qComp.onMutation = function() {
+    const pushDefault = (this === pComp) ? true : false;
     // we're rendering; changes need to be made by replacing
     if (rendering && pushOverride !== false) {
       throw new Error('Use of replacing() is required in this context');
     }
 
-    // get the copies that the proxies modified
-    const pCopy = getProxyCopy(pProxy, parts, true);
-    const qCopy = getProxyCopy(qProxy, query, true);
-    newLocation = router.createURL(pCopy, qCopy);
+    // get the copy that the proxies modified
+    newLocation = router.createURL(pComp.current(), qComp.current());
     if (location.href !== newLocation.href) {
       // if the changes create a different URL, then we use push for the upcoming operation
       if (!push) {
@@ -371,8 +452,8 @@ function useRouteFrom(router, dispatch, atRoot = false) {
         }
         // clear the copies used by the proxies, at this point the router's copy
         // should include the changes made by the proxies
-        clearProxyCopy(pProxy);
-        clearProxyCopy(qProxy);
+        pComp.clear();
+        qComp.clear();
         newLocation = undefined;
         push = undefined;
         scheduled = false;
@@ -381,7 +462,9 @@ function useRouteFrom(router, dispatch, atRoot = false) {
     }
   }
 
-  function replacing(fn) {
+  // make object holding methods invariant
+  const { current: methods } = useRef({});
+  methods.replacing = (fn) => {
     if (pushOverride !== undefined) {
       throw new Error('Cannot use replacing() in this context');
     }
@@ -403,9 +486,8 @@ function useRouteFrom(router, dispatch, atRoot = false) {
     } finally {
       pushOverride = undefined;
     }
-  }
-
-  function pushing(fn) {
+  };
+  methods.pushing = (fn) => {
     if (rendering || pushOverride !== undefined) {
       throw new Error('Cannot use pushing() in this context');
     }
@@ -415,13 +497,11 @@ function useRouteFrom(router, dispatch, atRoot = false) {
     } finally {
       pushOverride = undefined;
     }
-  }
-
-  function throw404() {
+  };
+  methods.throw404 = () => {
     throw new RouteError(location)
-  }
-
-  return [ pProxy, qProxy, { throw404, pushing, replacing } ];
+  };
+  return [ pComp.proxy, qComp.proxy, methods ];
 }
 
 function useMonitoring(router, consumer) {
@@ -433,80 +513,6 @@ function useMonitoring(router, consumer) {
       router.removeConsumer(consumer);
     };
   });
-}
-
-const mutatingFunctionMap = new Map([
-  [ Array, [ 'copyWithin', 'fill', 'pop', 'push', 'reverse', 'shift', 'sort', 'splice', 'unshift' ] ],
-  [ Object, [] ],
-]);
-
-function createProxy(object, ops, onAccess, onMutation) {
-  const mutatingFns = mutatingFunctionMap.get(object.constructor);
-  const proxy = new Proxy(object, {
-    get(object, name) {
-      onAccess();
-      let copy = getProxyCopy(proxy, object, true);
-      const value = copy[name];
-      if (typeof(value) === 'function') {
-        // return a function that call the array's method and log the operation
-        return function(...args) {
-          const fn = function() { return value.apply(this, args) };
-          const mutating = mutatingFns.includes(name);
-          if (mutating) {
-            // function is going to mutate the object, need to use a copy
-            copy = getProxyCopy(proxy, object, false);
-          }
-          const result = fn.call(copy);
-          if (mutating) {
-            onMutation(proxy);
-          } else {
-            // log the function call
-            ops.push({ fn, result });
-          }
-          return result;
-        };
-      } else {
-        // log the retrieval
-        ops.push({ name, result: value })
-        return value;
-      }
-    },
-    set(object, name, value) {
-      onAccess();
-      const copy = getProxyCopy(proxy, object, false);
-      copy[name] = '' + value;
-      onMutation(proxy);
-      return true;
-    },
-    deleteProperty(object, name) {
-      onAccess();
-      const copy = getProxyCopy(proxy, object, false);
-      delete copy[name];
-      onMutation(proxy);
-      return true;
-    },
-  });
-  return proxy;
-}
-
-const proxyCopyMap = new WeakMap();
-
-function getProxyCopy(proxy, object, readOnly) {
-  let copy = proxyCopyMap.get(proxy);
-  if (!copy) {
-    if (readOnly) {
-      // just return the original
-      copy = object;
-    } else {
-      copy = clone(object);
-      proxyCopyMap.set(proxy, copy);
-    }
-  }
-  return copy;
-}
-
-function clearProxyCopy(proxy) {
-  proxyCopyMap.delete(proxy);
 }
 
 function isResultDifferent(ops, object) {
