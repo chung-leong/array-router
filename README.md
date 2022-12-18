@@ -63,3 +63,96 @@ to `/categories` while `parts.splice(0)` would send you all the way back to the 
 
 By default, changes to `parts` trigger calls to `pushState` while changes to `query` trigger calls to
 `replaceState`. When both type of changes occur, `pushState` has precedence.
+
+## Error handling
+
+Array-router provides an [error boundary](https://reactjs.org/docs/error-boundaries.html) that redirect
+errors to the root. A captured error is rethrown the moment your code accesses one of the proxies (`parts` or `query`)
+or when `rethrow` is called.
+
+## Array proxy
+
+## useRouter([options])
+
+### Syntax
+
+```js
+export default function App() {
+  const provide = useRouter();
+  return (
+    <div className="App">
+      {provide((parts, query, { throw404 }) => {
+        try {
+          switch (parts[0]) {
+            case undefined:
+              return <WelcomePage />
+            case 'categories':
+              return <CategoryPage />
+            case 'forums':
+              return <ForumPage />
+            default:
+              throw404();
+          }
+        } catch (err) {
+          return <ErrorPage error={err} />
+        }
+      })}
+    </div>
+  );
+}
+```
+
+### Parameters
+
+* `options` - `<Object>` Object containing router options
+* `return` `<Function>` Function with three arguments: `parts`, `query`, and `methods`. These are the same as the
+objects returned by [`useRoute`](#useRoute).
+
+### Options
+
+* `basePath`
+* `location`
+* `trailingSlash`
+* `allowExtraParts`
+* `transitionLimit`
+* `keepExtraQuery`
+* `on404`
+
+## useRoute()
+
+### Syntax
+
+```js
+export default function CategoryPage() {
+  const [ parts, query, { replacing } ] = useRoute();
+  const categoryId = parts[1];
+
+  const onClick = (evt) => useCallback(() => {
+    replacing(() => parts[1] = evt.value);
+  }, [ replacing ]);
+
+  return (
+    /* ... */
+  );
+}
+```
+
+### Methods
+
+* `pushing`
+* `replacing`
+* `rethrow`
+* `throw404`
+
+## useLocation()
+
+### Syntax
+
+```js
+export default function LocationBar() {
+  const url = useLocation();
+  return <span>{url}</span>;
+}
+```
+
+## arrayProxy()

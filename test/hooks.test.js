@@ -113,7 +113,7 @@ describe('#useRouter()', function() {
     await withTestRenderer(async ({ render, toJSON, act }) => {
       let p, q, count = 0;
       function Test({ location }) {
-        const provide = useRouter({ location });
+        const provide = useRouter({ location, allowExtraParts: true });
         count++;
         return provide((parts, query) => {
           p = parts;
