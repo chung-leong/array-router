@@ -16,6 +16,10 @@ class Router {
   startTransition = null;
   onUpdate = null;
   on404 = null;
+  history = [ { index: 0, href: '' } ];
+  historyIndex = 0;
+  traps = [];
+  pendingOperation = null;
 
   constructor({ location, basePath, trailingSlash, onUpdate, on404 }) {
     this.basePath = basePath;
@@ -58,11 +62,13 @@ class Router {
     if (typeof(window) === 'object') {
       const { history } = window;
       const { href } = this.location;
-      if (push === true) {
-        history.pushState({}, undefined, href);
-      } else if (push === false) {
-        history.replaceState({}, undefined, href);
-      }
+      const index = this.historyIndex + (push ? 1 : 0);
+      const method = (push) ? history.pushState : history.replaceState;
+      const removing = (push) ? this.history.length - index : 1;
+      const state = { href, index };
+      method.call(history, state, undefined, href);
+      this.history.splice(index, removing, state);
+      this.historyIndex = index;
     }
   }
 
@@ -161,24 +167,80 @@ class Router {
     }
   }
 
+  activateTraps(url, reason) {
+    const promises = [];
+    for (const fn of this.traps) {
+      const promise = fn(url, reason);
+      if (promise) {
+        promises.push(promise);
+      }
+    }
+    return (promises.length > 0) ? Promise.all(promises).catch(() => {}) : null;
+  }
+
+  addTrap(fn) {
+    if (fn) {
+      this.traps.push(fn);
+    }
+  }
+
+  removeTrap(fn) {
+    const index = this.traps.indexOf(fn);
+    if (index !== -1) {
+      this.traps.splice(index, 1);
+    }
+  }
+
   attachListeners() {
     if (typeof(window) === 'object') {
       const onLinkClick = (evt) => {
         const { target, button, defaultPrevented } = evt;
         if (button === 0 && !defaultPrevented) {
           const link = target.closest('A');
-          if (link && link.origin === window.location.origin) {
-            if (!link.target && !link.download) {
-              let url = new URL(link);
-              this.change(url, true, true);
+          if (link && !link.target && !link.download) {
+            const url = new URL(link);
+            const promise = this.activateTraps(url, 'link');
+            if (link.origin === window.location.origin) {
+              if (promise) {
+                promise.then(() => this.change(url, true, true));
+              } else {
+                this.change(url, true, true);
+              }
               evt.preventDefault();
+            } else {
+              if (promise) {
+                promise.then(() => window.location.href = url);
+                evt.preventDefault();
+              }
             }
           }
         }
       };
+      let ignoreCount = 0;
       const onPopState = (evt) => {
+        if (ignoreCount > 0) {
+          ignoreCount--;
+          return;
+        }
         const url = new URL(window.location)
-        this.change(url);
+        const { state } = history;
+        const index = state?.index ?? -1;
+        const direction = (index > this.historyIndex) ? 'forward' : 'back';
+        const promise = this.activateTraps(url, direction);
+        if (promise) {
+          // revert the change and reapply it when the promise is fulfilled
+          ignoreCount++;
+          history.go(direction === 'back' ? +1 : -1);
+          promise.then(() => {
+            ignoreCount++;
+            history.go(direction === 'back' ? -1 : +1);
+            this.historyIndex = index;
+            this.change(url);
+          });
+        } else {
+          this.historyIndex = index;
+          this.change(url);
+        }
       };
       window.addEventListener('click', onLinkClick, true);
       window.addEventListener('popstate', onPopState, true);
@@ -281,18 +343,16 @@ class RouteController {
   newLocation = null;
   scheduled = false;
   rendering = false;
+  trapFn = null;
 
   constructor(router, atRoot) {
-    const self = this;
     this.router = router;
     this.atRoot = atRoot;
     this.parts = new RouteComponent(router.parts);
     this.query = new RouteComponent(router.query);
+    const self = this;
     this.parts.onAccess = this.query.onAccess = function() {
-      // at the root level, touching the proxies will cause the last error to be thrown during rendering
-      if (self.atRoot && self.rendering && self.router.lastError) {
-        throw self.router.lastError;
-      }
+      self.throw();
     };
     this.parts.onMutation = this.query.onMutation = function() {
       self.mutate(this);
@@ -309,9 +369,14 @@ class RouteController {
     this.rendering = false;
   }
 
-  mutate(comp) {
-    const pushDefault = (comp === this.parts) ? true : false;
+  throw() {
+    // at the root level, touching the proxies will cause the last error to be thrown during rendering
+    if (this.atRoot && this.rendering && this.router.lastError) {
+      throw this.router.lastError;
+    }
+  }
 
+  mutate(comp) {
     // we're rendering; changes need to be made by replacing
     if (this.rendering && this.pushOverride !== false) {
       throw new Error('Use of replacing() is required in this context');
@@ -322,6 +387,8 @@ class RouteController {
     if (this.router.location.href !== this.newLocation.href) {
       // if the changes create a different URL, then we use push for the upcoming operation
       if (!this.push) {
+        // default for path changes is push
+        const pushDefault = (comp === this.parts) ? true : false;
         this.push = this.pushOverride ?? pushDefault;
       }
     } else {
@@ -391,6 +458,14 @@ class RouteController {
 
   throw404 = () => {
     throw new RouteError(this.router.location);
+  }
+
+  trap = (fn) => {
+    this.router.removeTrap(this.trapFn);
+    this.trapFn = fn;
+    if (!this.rendering) {
+      this.router.addTrap(this.trapFn);
+    }
   }
 }
 
@@ -509,7 +584,14 @@ export function useRoute() {
 export function useLocation() {
   const router = useRouterContext();
   const [ count, dispatch ] = useReducer(c => c + 1, 0);
-  useMonitoring(router, { lOps: true, dispatch });
+  useInsertionEffect(() => {
+    const consumer = { lOps: true, dispatch };
+    router.addConsumer(consumer);
+    return () => {
+      router.removeConsumer(consumer);
+    };
+  });
+
   return router.location;
 }
 
@@ -529,25 +611,24 @@ function useRouteFrom(router, dispatch, atRoot = false) {
   controller.onRenderStart();
   useEffect(() => controller.onRenderEnd());
   // monitor route changes; dispatch is invoked only if the ops performed on
-  // the route components yield different results with a new route
-  const pOps = parts.ops, qOps = query.ops;
-  useMonitoring(router, { pOps, qOps, dispatch, atRoot });
-  const methods = useMemo(() => {
-    const { pushing, replacing, throw404, rethrow } = controller;
-    return { pushing, replacing, throw404, rethrow };
-  }, [ controller ]);
-  return [ parts.proxy, query.proxy, methods ];
-}
-
-function useMonitoring(router, consumer) {
-  // using useInsertionEffect here so that the useEffect hook of RouterInspection will
+  // the route components yield different results with a new route;
+  // using useInsertionEffect so that the useEffect hook of RouterInspection will
   // see the consumer created by the root component
   useInsertionEffect(() => {
+    const pOps = parts.ops, qOps = query.ops;
+    const consumer = { pOps, qOps, dispatch, atRoot };
     router.addConsumer(consumer);
+    router.addTrap(controller.trapFn);
     return () => {
       router.removeConsumer(consumer);
+      router.removeTrap(controller.trapFn);
     };
   });
+  const methods = useMemo(() => {
+    const { pushing, replacing, throw404, rethrow, trap } = controller;
+    return { pushing, replacing, throw404, rethrow, trap };
+  }, [ controller ]);
+  return [ parts.proxy, query.proxy, methods ];
 }
 
 function isResultDifferent(ops, object) {

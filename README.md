@@ -64,6 +64,10 @@ to `/categories` while `parts.splice(0)` would send you all the way back to the 
 By default, changes to `parts` trigger calls to `pushState` while changes to `query` trigger calls to
 `replaceState`. When both type of changes occur, `pushState` has precedence.
 
+## Override default push vs. replace behavior
+
+## Changing route during rendering
+
 ## Error handling
 
 Array-router provides an [error boundary](https://reactjs.org/docs/error-boundaries.html) that redirect
@@ -139,10 +143,10 @@ export default function CategoryPage() {
 
 ### Methods
 
-* `pushing`
-* `replacing`
-* `rethrow`
-* `throw404`
+* `pushing(cb)`
+* `replacing(cb)`
+* `rethrow()`
+* `throw404()`
 
 ## useLocation()
 
