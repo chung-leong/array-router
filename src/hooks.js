@@ -65,9 +65,8 @@ class Router {
       const index = this.historyIndex + (push ? 1 : 0);
       const method = (push) ? history.pushState : history.replaceState;
       const removing = (push) ? this.history.length - index : 1;
-      const state = { href, index };
-      method.call(history, state, undefined, href);
-      this.history.splice(index, removing, state);
+      method.call(history, { index }, undefined, href);
+      this.history.splice(index, removing, { href, index });
       this.historyIndex = index;
     }
   }
@@ -223,8 +222,7 @@ class Router {
           return;
         }
         const url = new URL(window.location)
-        const { state } = history;
-        const index = state?.index ?? -1;
+        const { index } = history.state;
         const direction = (index > this.historyIndex) ? 'forward' : 'back';
         const promise = this.activateTraps(url, direction);
         if (promise) {

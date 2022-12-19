@@ -1144,6 +1144,35 @@ describe('#useLocation()', function() {
       });
     });
   })
+  it('should install trap links to external pages', async function() {
+    await withJSDOM('http://example.test/hello', async () => {
+      await withReactDOM(async ({ render, toJSON, act, node }) => {
+        let t;
+        function Test() {
+          const provide = useRouter({ trailingSlash: true });
+          return provide((parts, query, { trap }) => {
+            t = trap;
+            return createElement('a', { href: 'http://somewhere.net/' }, parts[0]);
+          });
+        }
+        const el = createElement(Test);
+        await render(el);
+        expect(node.innerHTML).to.equal('<a href="http://somewhere.net/">hello</a>');
+        let url, reason, resolve;
+        t((u, r) => {
+          url = u;
+          reason = r;
+          return new Promise(r => resolve = r);
+        });
+        const [ a ] = node.getElementsByTagName('A');
+        await act(() => a.click());
+        expect(url.href).to.equal('http://somewhere.net/')
+        expect(reason).to.equal('link');
+        expect(window.location.href).to.equal('http://example.test/hello/');
+        await act(() => resolve());
+      });
+    });
+  })
 })
 
 function nextTick() {
