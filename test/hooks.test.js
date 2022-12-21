@@ -1074,44 +1074,44 @@ describe('#useLocation()', function() {
   it('should allow the trapping of changes due to click on link', async function() {
     await withJSDOM('http://example.test/hello', async () => {
       await withReactDOM(async ({ render, toJSON, act, node }) => {
-        let url, reason, resolve;
+        let trapped, resolve;
         function Test() {
           const provide = useRouter({ trailingSlash: true });
           return provide((parts, query, { trap }) => {
-            trap((u, r) => {
-              url = u;
-              reason = r;
+            trap((reason, parts, query, url) => {
+              trapped = { reason, parts, query, url };
               return new Promise(r => resolve = r);
             });
-            return createElement('a', { href: '/somewhere' }, parts[0]);
+            return createElement('a', { href: '/somewhere?a=b' }, parts[0]);
           });
         }
         const el = createElement(Test);
         await render(el);
-        expect(node.innerHTML).to.equal('<a href="/somewhere">hello</a>');
+        expect(node.innerHTML).to.equal('<a href="/somewhere?a=b">hello</a>');
         const [ a ] = node.getElementsByTagName('A');
         await act(() => a.click());
-        expect(url.href).to.equal('http://example.test/somewhere')
-        expect(reason).to.equal('link');
-        expect(node.innerHTML).to.equal('<a href="/somewhere">hello</a>');
+        expect(trapped.reason).to.equal('link');
+        expect(trapped.parts).to.eql([ 'somewhere' ]);
+        expect(trapped.query).to.eql({ a: 'b' });
+        expect(trapped.url.href).to.equal('http://example.test/somewhere?a=b');
+        expect(node.innerHTML).to.equal('<a href="/somewhere?a=b">hello</a>');
         expect(window.location.href).to.equal('http://example.test/hello/');
         await act(() => resolve());
-        expect(node.innerHTML).to.equal('<a href="/somewhere">somewhere</a>');
-        expect(window.location.href).to.equal('http://example.test/somewhere/');
+        expect(node.innerHTML).to.equal('<a href="/somewhere?a=b">somewhere</a>');
+        expect(window.location.href).to.equal('http://example.test/somewhere/?a=b');
       });
     });
   })
   it('should allow the trapping of changes due to calling of history.go', async function() {
     await withJSDOM('http://example.test/hello', async () => {
       await withReactDOM(async ({ render, toJSON, act, node }) => {
-        let url, reason, resolve;
+        let trapped, resolve;
         function Test() {
           const provide = useRouter({ trailingSlash: true });
           return provide((parts, query, { trap }) => {
-            trap((u, r) => {
-              if (r !== 'link') {
-                url = u;
-                reason = r;
+            trap((reason, parts, query, url) => {
+              if (reason !== 'link') {
+                trapped = { reason, parts, query, url };
                 return new Promise(r => resolve = r);
               }
             });
@@ -1126,16 +1126,18 @@ describe('#useLocation()', function() {
         expect(node.innerHTML).to.equal('<a href="/somewhere">somewhere</a>');
         expect(window.location.href).to.equal('http://example.test/somewhere/');
         await act(async () => window.history.go(-1));
-        expect(url.href).to.equal('http://example.test/hello/')
-        expect(reason).to.equal('back');
+        expect(trapped.reason).to.equal('back');
+        expect(trapped.parts).to.eql([ 'hello' ]);
+        expect(trapped.query).to.eql({});
+        expect(trapped.url.href).to.equal('http://example.test/hello/')
         expect(node.innerHTML).to.equal('<a href="/somewhere">somewhere</a>');
         expect(window.location.href).to.equal('http://example.test/somewhere/');
         await act(() => resolve());
         expect(node.innerHTML).to.equal('<a href="/somewhere">hello</a>');
         expect(window.location.href).to.equal('http://example.test/hello/');
         await act(async () => window.history.go(+1));
-        expect(url.href).to.equal('http://example.test/somewhere/')
-        expect(reason).to.equal('forward');
+        expect(trapped.url.href).to.equal('http://example.test/somewhere/')
+        expect(trapped.reason).to.equal('forward');
         expect(node.innerHTML).to.equal('<a href="/somewhere">hello</a>');
         expect(window.location.href).to.equal('http://example.test/hello/');
         await act(() => resolve());
@@ -1158,18 +1160,21 @@ describe('#useLocation()', function() {
         const el = createElement(Test);
         await render(el);
         expect(node.innerHTML).to.equal('<a href="http://somewhere.net/">hello</a>');
-        let url, reason, resolve;
-        t((u, r) => {
-          url = u;
+        let parts, query, url, reason, resolve;
+        t((r, p, q, u) => {
           reason = r;
+          parts = p;
+          query = q;
+          url = u;
           return new Promise(r => resolve = r);
         });
         const [ a ] = node.getElementsByTagName('A');
         await act(() => a.click());
-        expect(url.href).to.equal('http://somewhere.net/')
         expect(reason).to.equal('link');
+        expect(parts).to.be.null;
+        expect(query).to.be.null;
+        expect(url.href).to.equal('http://somewhere.net/')
         expect(window.location.href).to.equal('http://example.test/hello/');
-        await act(() => resolve());
       });
     });
   })

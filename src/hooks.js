@@ -166,10 +166,24 @@ class Router {
     }
   }
 
-  activateTraps(url, reason) {
+  activateTraps(reason, url, internal = true) {
+    if (this.traps.length === 0) {
+      return null;
+    }
     const promises = [];
+    let parts = null, query = null;
+    if (internal) {
+      parts = url.pathname.substr(this.basePath.length).split('/');
+      if (parts[parts.length - 1] === '') {
+        parts.pop();
+      }
+      query = {};
+      for (const [ name, value ] of url.searchParams) {
+        query[name] = value;
+      }
+    }
     for (const fn of this.traps) {
-      const promise = fn(url, reason);
+      const promise = fn(reason, parts, query, url);
       if (promise) {
         promises.push(promise);
       }
@@ -198,8 +212,9 @@ class Router {
           const link = target.closest('A');
           if (link && !link.target && !link.download) {
             const url = new URL(link);
-            const promise = this.activateTraps(url, 'link');
-            if (link.origin === window.location.origin) {
+            const internal = (link.origin === window.location.origin && link.pathname.startsWith(this.basePath));
+            const promise = this.activateTraps('link', url, internal);
+            if (internal) {
               if (promise) {
                 promise.then(() => this.change(url, true, true));
               } else {
@@ -224,7 +239,7 @@ class Router {
         const url = new URL(window.location)
         const { index } = history.state;
         const direction = (index > this.historyIndex) ? 'forward' : 'back';
-        const promise = this.activateTraps(url, direction);
+        const promise = this.activateTraps(direction, url);
         if (promise) {
           // revert the change and reapply it when the promise is fulfilled
           ignoreCount++;
