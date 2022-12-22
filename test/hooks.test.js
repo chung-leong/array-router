@@ -221,16 +221,17 @@ describe('#useRouter()', function() {
       expect(count).to.equal(2);
     });
   })
-  it('should be able to correct a 404 error', async function() {
+  it('should be able to trap and correct a 404 error', async function() {
     await withTestRenderer(async ({ render, toJSON, act }) => {
       let called = false;
       function Root({ location }) {
-        const provide = useRouter({ location, on404: (err, parts, query) => {
-          parts[1] = 'universe';
-          called = true;
-          return false;
-        }});
-        return provide((parts, query) => {
+        const provide = useRouter({ location });
+        return provide((parts, query, { trap }) => {
+          trap(404, (err, parts, query) => {
+            parts[1] = 'universe';
+            called = true;
+            return true;
+          });
           return createElement(Comp);
         });
       }
@@ -246,6 +247,90 @@ describe('#useRouter()', function() {
         await render(el);
         expect(toJSON()).to.equal('hello universe');
         expect(called).to.be.true;
+      });
+    });
+  })
+  it('should be allow 404 error to fall through when no trap catches it', async function() {
+    await withTestRenderer(async ({ render, toJSON, act }) => {
+      function Root({ location }) {
+        const provide = useRouter({ location });
+        return provide((parts, query, { trap, rethrow }) => {
+          trap(404, (err, parts, query) => {});
+          try {
+            rethrow();
+            return createElement(Comp);
+          } catch (err) {
+            return 'Dingo ate my baby';
+          };
+        });
+      }
+      function Comp() {
+        const [ parts, query, { throw404 } ] = useRoute();
+        if (parts[1] === 'world') {
+          throw404();
+        }
+        return `${parts[0]} ${parts[1]}`;
+      }
+      await withSilentConsole(async () => {
+        const el = createElement(Root, { location: 'http://example.test/hello/world/?a=1&b=123' });
+        await render(el);
+        expect(toJSON()).to.equal('Dingo ate my baby');
+      });
+    });
+  })
+  it('should be able to trap and correct a non-404 error', async function() {
+    await withTestRenderer(async ({ render, toJSON, act }) => {
+      let error, called = false, throwing = true;
+      function Root({ location }) {
+        const provide = useRouter({ location });
+        return provide((parts, query, { trap }) => {
+          trap('error', (err) => {
+            called = true;
+            throwing = false;
+            error = err;
+            return true;
+          });
+          return createElement(Comp);
+        });
+      }
+      function Comp() {
+        if (throwing) {
+          throw new Error('Life sucks');
+        }
+        return `Hello world`;
+      }
+      await withSilentConsole(async () => {
+        const el = createElement(Root, { location: 'http://example.test/' });
+        await render(el);
+        expect(toJSON()).to.equal('Hello world');
+        expect(called).to.be.true;
+        expect(throwing).to.be.false;
+        expect(error).to.be.an('error').with.property('message', 'Life sucks');
+      });
+    });
+  })
+  it('should throw when trap type is unknown', async function() {
+    await withTestRenderer(async ({ render, toJSON, act }) => {
+      let error;
+      function Root({ location }) {
+        const provide = useRouter({ location });
+        return provide((parts, query, { trap }) => {
+          try {
+            trap('bobo', () => {});
+          } catch (err) {
+            error = err;
+          }
+          return createElement(Comp);
+        });
+      }
+      function Comp() {
+        return `Hello world`;
+      }
+      await withSilentConsole(async () => {
+        const el = createElement(Root, { location: 'http://example.test/' });
+        await render(el);
+        expect(toJSON()).to.equal('Hello world');
+        expect(error).to.be.an('error').with.property('message').that.contains('Unknown trap type');
       });
     });
   })
@@ -1078,7 +1163,7 @@ describe('#useLocation()', function() {
         function Test() {
           const provide = useRouter({ trailingSlash: true });
           return provide((parts, query, { trap }) => {
-            trap((reason, parts, query, url) => {
+            trap('change', (reason, parts, query, url) => {
               trapped = { reason, parts, query, url };
               return new Promise(r => resolve = r);
             });
@@ -1109,7 +1194,7 @@ describe('#useLocation()', function() {
         function Test() {
           const provide = useRouter({ trailingSlash: true });
           return provide((parts, query, { trap }) => {
-            trap((reason, parts, query, url) => {
+            trap('change', (reason, parts, query, url) => {
               if (reason !== 'link') {
                 trapped = { reason, parts, query, url };
                 return new Promise(r => resolve = r);
@@ -1161,7 +1246,7 @@ describe('#useLocation()', function() {
         await render(el);
         expect(node.innerHTML).to.equal('<a href="http://somewhere.net/">hello</a>');
         let parts, query, url, reason, resolve;
-        t((r, p, q, u) => {
+        t('change', (r, p, q, u) => {
           reason = r;
           parts = p;
           query = q;

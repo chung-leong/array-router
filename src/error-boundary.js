@@ -24,8 +24,8 @@ export class ErrorBoundary extends Component {
   render() {
     let { error } = this.state;
     if (error) {
-      // keep rendering if the error was patched up
-      if (this.props.onError(error) === false) {
+      // keep rendering if the error was patched up somehow
+      if (this.props.onError(error) === true) {
         error = null;
       }
     }

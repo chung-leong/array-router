@@ -15,17 +15,15 @@ class Router {
   lastError = null;
   startTransition = null;
   onUpdate = null;
-  on404 = null;
   history = [ { index: 0, href: '' } ];
   historyIndex = 0;
-  traps = [];
+  traps = { change: [], '404': [], error: [] };
   pendingOperation = null;
 
-  constructor({ location, basePath, trailingSlash, onUpdate, on404 }) {
+  constructor({ location, basePath, trailingSlash, onUpdate }) {
     this.basePath = basePath;
     this.trailer = (trailingSlash) ? '/' : '';
     this.onUpdate = onUpdate;
-    this.on404 = on404;
     const url = new URL(location ?? globalThis.location); // eslint-disable-line no-undef
     this.location = new URL(url.origin);
     this.change(url, false, true);
@@ -103,23 +101,19 @@ class Router {
     }
   }
 
-  setError(error) {
+  reportError(error) {
     if (error instanceof RouteChangeInterruption) {
-      // just apply the change
+      // apply the change and return true to indicate that rendering can continue
       this.change(error.url, false);
-      return false;
+      return true;
     } else if (error instanceof RouteError) {
-      const { parts, query, on404 } = this;
-      if (on404) {
-        // see if the handler can fix the situation
-        const pCopy = [ ...parts ];
-        const qCopy = { ...query };
-        if (on404(error, pCopy, qCopy) === false) {
-          const url = this.createURL(pCopy, qCopy);
-          this.change(url, false);
-          return false;
-        }
+      if (this.activate404Traps(error) === true) {
+        return true;
       }
+    }
+    const result = this.activateErrorTraps(error);
+    if (typeof(result) === 'boolean') {
+      return result;
     }
     this.lastError = error;
     this.onUpdate();
@@ -166,41 +160,77 @@ class Router {
     }
   }
 
-  activateTraps(reason, url, internal = true) {
-    if (this.traps.length === 0) {
-      return null;
-    }
+  activateChangeTraps(reason, url, internal = true) {
     const promises = [];
-    let parts = null, query = null;
-    if (internal) {
-      parts = url.pathname.substr(this.basePath.length).split('/');
-      if (parts[parts.length - 1] === '') {
-        parts.pop();
+    const fns = this.traps.change;
+    if (fns.length > 0) {
+      let parts = null, query = null;
+      if (internal) {
+        parts = url.pathname.substr(this.basePath.length).split('/');
+        if (parts[parts.length - 1] === '') {
+          parts.pop();
+        }
+        query = {};
+        for (const [ name, value ] of url.searchParams) {
+          query[name] = value;
+        }
       }
-      query = {};
-      for (const [ name, value ] of url.searchParams) {
-        query[name] = value;
-      }
-    }
-    for (const fn of this.traps) {
-      const promise = fn(reason, parts, query, url);
-      if (promise) {
-        promises.push(promise);
+      for (const fn of fns) {
+        const promise = fn(reason, parts, query, url);
+        if (promise) {
+          promises.push(promise);
+        }
       }
     }
     return (promises.length > 0) ? Promise.all(promises).catch(() => {}) : null;
   }
 
-  addTrap(fn) {
-    if (fn) {
-      this.traps.push(fn);
+  activate404Traps(error) {
+    const fns = this.traps['404'];
+    if (fns.length > 0) {
+      // see if a trap function can fix the situation
+      const pCopy = [ ...this.parts ];
+      const qCopy = { ...this.query };
+      for (const fn of fns) {
+        if (fn(error, pCopy, qCopy) === true) {
+          const url = this.createURL(pCopy, qCopy);
+          this.change(url, false);
+          return true;
+        }
+      }
     }
   }
 
-  removeTrap(fn) {
-    const index = this.traps.indexOf(fn);
-    if (index !== -1) {
-      this.traps.splice(index, 1);
+  activateErrorTraps(error) {
+    const fns = this.traps['error'];
+    for (const fn of fns) {
+      const result = fn(error);
+      if (typeof(result) === 'boolean') {
+        return result;
+      }
+    }
+  }
+
+  addTraps(traps) {
+    for (const [ type, fn ] of Object.entries(traps)) {
+      if (fn) {
+        const fns = this.traps[type];
+        if (fns.indexOf(fn) === -1) {
+          fns.push(fn);
+        }
+      }
+    }
+  }
+
+  removeTraps(traps) {
+    for (const [ type, fn ] of Object.entries(traps)) {
+      if (fn) {
+        const fns = this.traps[type];
+        const index = fns.indexOf(fn);
+        if (index !== -1) {
+          fns.splice(index, 1);
+        }
+      }
     }
   }
 
@@ -213,7 +243,7 @@ class Router {
           if (link && !link.target && !link.download) {
             const url = new URL(link);
             const internal = (link.origin === window.location.origin && link.pathname.startsWith(this.basePath));
-            const promise = this.activateTraps('link', url, internal);
+            const promise = this.activateChangeTraps('link', url, internal);
             if (internal) {
               if (promise) {
                 promise.then(() => this.change(url, true, true));
@@ -239,7 +269,7 @@ class Router {
         const url = new URL(window.location)
         const { index } = history.state;
         const direction = (index > this.historyIndex) ? 'forward' : 'back';
-        const promise = this.activateTraps(direction, url);
+        const promise = this.activateChangeTraps(direction, url);
         if (promise) {
           // revert the change and reapply it when the promise is fulfilled
           ignoreCount++;
@@ -356,7 +386,7 @@ class RouteController {
   newLocation = null;
   scheduled = false;
   rendering = false;
-  trapFn = null;
+  traps = {};
 
   constructor(router, atRoot) {
     this.router = router;
@@ -473,12 +503,13 @@ class RouteController {
     throw new RouteError(this.router.location);
   }
 
-  trap = (fn) => {
-    this.router.removeTrap(this.trapFn);
-    this.trapFn = fn;
-    if (!this.rendering) {
-      this.router.addTrap(this.trapFn);
+  trap = (type, fn) => {
+    if (type !== 'change' && type != '404' && type !== 'error') {
+      throw new Error(`Unknown trap type: ${type}`);
     }
+    this.router.removeTraps(this.traps);
+    this.traps[type] = fn;
+    this.router.addTraps(this.traps);
   }
 }
 
@@ -490,15 +521,14 @@ export function useRouter(options = {}) {
     allowExtraParts = false,
     transitionLimit = 50,
     keepExtraQuery = [],
-    on404,
   } = options;
   if (!basePath.endsWith('/')) {
     throw new Error('basePath should have a trailing slash');
   }
   const [ count, dispatch ] = useReducer(c => c + 1, 0);
   const router = useMemo(() => {
-    return new Router({ location, basePath, trailingSlash, onUpdate: dispatch, on404 });
-  }, [ location, basePath, trailingSlash, on404 ]);
+    return new Router({ location, basePath, trailingSlash, onUpdate: dispatch });
+  }, [ location, basePath, trailingSlash ]);
   useEffect(() => router.attachListeners(), [ router ]);
   // the root component is also a route consumer, it just receive the route as arguments to
   // provide() instead of getting it as a returned value
@@ -510,7 +540,7 @@ export function useRouter(options = {}) {
     // inspection component
     const inspection = createElement(RouterInspection, { router, allowExtraParts, keepExtraQuery });
     // catch errors from children so we can redirect it to the root component
-    const boundary = createElement(ErrorBoundary, { onError: (err) => router.setError(err) }, children, transition, inspection);
+    const boundary = createElement(ErrorBoundary, { onError: (err) => router.reportError(err) }, children, transition, inspection);
     // provide context to any children using useRoute()
     return createElement(RouterContext.Provider, { value: router }, boundary);
   }, [ methods, router, allowExtraParts, transitionLimit, keepExtraQuery ]);
@@ -546,7 +576,7 @@ function RouterInspection({ router, allowExtraParts, keepExtraQuery }) {
           } while (pCopy.length > 0);
         });
         if (extraParts.length > 0) {
-          router.setError(new RouteError(router.location));
+          router.reportError(new RouteError(router.location));
         }
       }
       if (keepExtraQuery !== true && removed.length > 0) {
@@ -631,10 +661,10 @@ function useRouteFrom(router, dispatch, atRoot = false) {
     const pOps = parts.ops, qOps = query.ops;
     const consumer = { pOps, qOps, dispatch, atRoot };
     router.addConsumer(consumer);
-    router.addTrap(controller.trapFn);
+    router.addTraps(controller.traps);
     return () => {
       router.removeConsumer(consumer);
-      router.removeTrap(controller.trapFn);
+      router.removeTraps(controller.traps);
     };
   });
   const methods = useMemo(() => {
