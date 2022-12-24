@@ -1018,7 +1018,7 @@ describe('#useRoute()', function() {
     await withTestRenderer(async ({ render, toJSON, act }) => {
       let p;
       function Root({ location }) {
-        const provide = useRouter({ location, keepExtraQuery: [ 'a', 'b', 'c' ] });
+        const provide = useRouter({ location, keepExtraQuery: '^a|b|c$' });
         return provide((parts) => {
           p = parts;
           try {

@@ -2,6 +2,7 @@ export {
   useRouter,
   useRoute,
   useLocation,
+  useSequentialRouter,
 } from './src/hooks.js';
 export {
   RouteError,

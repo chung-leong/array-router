@@ -6,31 +6,28 @@ import { RouteError, RouteChangeInterruption } from './errors.js';
 const RouterContext = createContext();
 
 class Router {
-  basePath = '';
   location = null;
   parts = [];
   query = {};
   consumers = [];
   removed = [];
   lastError = null;
-  startTransition = null;
-  onUpdate = null;
   history = [ { index: 0, href: '' } ];
   historyIndex = 0;
   traps = { change: [], '404': [], error: [] };
-  pendingOperation = null;
+  startTransition = null;
+  updateRoot = null;
 
-  constructor({ location, basePath, trailingSlash, onUpdate }) {
-    this.basePath = basePath;
-    this.trailer = (trailingSlash) ? '/' : '';
-    this.onUpdate = onUpdate;
-    const url = new URL(location ?? globalThis.location); // eslint-disable-line no-undef
-    this.location = new URL(url.origin);
+  constructor(options) {
+    this.options = options;
+    this.extraQueryTest = (options.keepExtraQuery) ? new RegExp(options.keepExtraQuery) : null;
+    const url = new URL(options.location ?? globalThis.location); // eslint-disable-line no-undef
     this.change(url, false, true);
   }
 
   updateParts(path) {
-    const { parts, basePath, trailingSlash } = this;
+    const { parts } = this;
+    const { basePath } = this.options;
     if (!path.startsWith(basePath)) {
       throw new Error(`"${path}" does not start with "${basePath}"`);
     }
@@ -70,8 +67,9 @@ class Router {
   }
 
   createURL(parts, query) {
-    const { location, basePath, trailer } = this;
-    const path = parts.join('/') + (parts.length > 0 ? trailer : '');
+    const { location } = this;
+    const { trailingSlash, basePath } = this.options;
+    const path = parts.join('/') + (parts.length > 0 ? (trailingSlash ? '/' : '') : '');
     const url = new URL(basePath + path, location);
     const { searchParams } = url;
     for (const [ name, value ] of Object.entries(query)) {
@@ -81,8 +79,12 @@ class Router {
   }
 
   change(url, push, external = false) {
+    const initiating = !this.location;
+    if (initiating) {
+      this.location = new URL(url.origin);
+    }
     const { location, parts, query } = this;
-    if (location.href !== url.href) {
+    if (initiating || location.href !== url.href) {
       const pDiff = location.pathname !== url.pathname;
       const qDiff = location.search !== url.search;
       if (pDiff) {
@@ -116,7 +118,7 @@ class Router {
       return result;
     }
     this.lastError = error;
-    this.onUpdate();
+    this.updateRoot?.();
   }
 
   notifyConsumers({ pDiff, qDiff }) {
@@ -161,12 +163,13 @@ class Router {
   }
 
   activateChangeTraps(reason, url, internal = true) {
+    const { basePath } = this.options;
     const promises = [];
     const fns = this.traps.change;
     if (fns.length > 0) {
       let parts = null, query = null;
       if (internal) {
-        parts = url.pathname.substr(this.basePath.length).split('/');
+        parts = url.pathname.substr(basePath.length).split('/');
         if (parts[parts.length - 1] === '') {
           parts.pop();
         }
@@ -236,13 +239,14 @@ class Router {
 
   attachListeners() {
     if (typeof(window) === 'object') {
+      const { basePath } = this.options;
       const onLinkClick = (evt) => {
         const { target, button, defaultPrevented } = evt;
         if (button === 0 && !defaultPrevented) {
           const link = target.closest('A');
           if (link && !link.target && !link.download) {
             const url = new URL(link);
-            const internal = (link.origin === window.location.origin && link.pathname.startsWith(this.basePath));
+            const internal = (link.origin === window.location.origin && link.pathname.startsWith(basePath));
             const promise = this.activateChangeTraps('link', url, internal);
             if (internal) {
               if (promise) {
@@ -292,6 +296,20 @@ class Router {
         window.removeEventListener('popstate', onPopState, true);
       };
     }
+  }
+
+  createContext(children) {
+    const { extraQueryTest } = this;
+    const { allowExtraParts, transitionLimit } = this.options;
+    const transition = createElement(RouterTransition, { router: this, transitionLimit });
+    // inspection component
+    const inspection = createElement(RouterInspection, { router: this, allowExtraParts, extraQueryTest });
+    // provide context to any children using useRoute()
+    return createElement(RouterContext.Provider, { value: this }, children, transition, inspection);
+  }
+
+  createBoundary(children) {
+    return createElement(ErrorBoundary, { onError: (err) => this.reportError(err) }, children);
   }
 }
 
@@ -513,40 +531,6 @@ class RouteController {
   }
 }
 
-export function useRouter(options = {}) {
-  const {
-    basePath = '/',
-    location,
-    trailingSlash = false,
-    allowExtraParts = false,
-    transitionLimit = 50,
-    keepExtraQuery = [],
-  } = options;
-  if (!basePath.endsWith('/')) {
-    throw new Error('basePath should have a trailing slash');
-  }
-  const [ count, dispatch ] = useReducer(c => c + 1, 0);
-  const router = useMemo(() => {
-    return new Router({ location, basePath, trailingSlash, onUpdate: dispatch });
-  }, [ location, basePath, trailingSlash ]);
-  useEffect(() => router.attachListeners(), [ router ]);
-  // the root component is also a route consumer, it just receive the route as arguments to
-  // provide() instead of getting it as a returned value
-  const [ parts, query, methods ] = useRouteFrom(router, dispatch, true);
-  const provide = useCallback((cb) => {
-    const children = cb(parts, query, methods);
-    // transition component
-    const transition = createElement(RouterTransition, { router, transitionLimit });
-    // inspection component
-    const inspection = createElement(RouterInspection, { router, allowExtraParts, keepExtraQuery });
-    // catch errors from children so we can redirect it to the root component
-    const boundary = createElement(ErrorBoundary, { onError: (err) => router.reportError(err) }, children, transition, inspection);
-    // provide context to any children using useRoute()
-    return createElement(RouterContext.Provider, { value: router }, boundary);
-  }, [ methods, router, allowExtraParts, transitionLimit, keepExtraQuery ]);
-  return provide;
-}
-
 function RouterTransition({ router, transitionLimit }) {
   const [ isPending, startTransition ] = useTransition();
   const [ callback, setCallback ] = useState();
@@ -560,8 +544,8 @@ function RouterTransition({ router, transitionLimit }) {
   }, [ callback, isPending ]);
 }
 
-function RouterInspection({ router, allowExtraParts, keepExtraQuery }) {
-  const [ count, dispatch ] = useReducer(c => c + 1, 0);
+function RouterInspection({ router, allowExtraParts, extraQueryTest }) {
+  const [ , dispatch ] = useReducer(c => c + 1, 0);
   // hook runs everytime dispatch is invoked
   useEffect(() => {
     if (!router.lastError) {
@@ -579,7 +563,7 @@ function RouterInspection({ router, allowExtraParts, keepExtraQuery }) {
           router.reportError(new RouteError(router.location));
         }
       }
-      if (keepExtraQuery !== true && removed.length > 0) {
+      if (removed.length > 0) {
         const opLists = consumers.map(c => c.qOps);
         const extraFields = findExtraFields(opLists, function*() {
           // get the query variables used by the unmounted components
@@ -587,7 +571,7 @@ function RouterInspection({ router, allowExtraParts, keepExtraQuery }) {
           for (const { qOps } of removed) {
             if (qOps) {
               for (const { name } of qOps) {
-                if (name && !names.includes(name) && !keepExtraQuery?.includes(name)) {
+                if (name && !names.includes(name) && !extraQueryTest?.test(name)) {
                   names.push(name);
                 }
               }
@@ -618,15 +602,34 @@ function RouterInspection({ router, allowExtraParts, keepExtraQuery }) {
   });
 }
 
+export function useRouter(options) {
+  options = useRouterOptions(options);
+  const router = useMemo(() => new Router(options), [ options ]);
+  const [ , dispatch ] = useReducer(c => c + 1, 0);
+  router.updateRoot = dispatch;
+  useEffect(() => router.attachListeners(), [ router ]);
+  // the root component is also a route consumer, it just receive the route as arguments to
+  // provide() instead of getting it as a returned value
+  const [ parts, query, methods ] = useRouteFrom(router, dispatch, true);
+  const provide = useCallback((cb) => {
+    const children = cb(parts, query, methods);
+    // transition component
+    const boundary = router.createBoundary(children);
+    // provide context to any children using useRoute()
+    return router.createContext(boundary);
+  }, [ parts, query, methods, router ]);
+  return provide;
+}
+
 export function useRoute() {
   const router = useRouterContext();
-  const [ count, dispatch ] = useReducer(c => c + 1, 0);
+  const [ , dispatch ] = useReducer(c => c + 1, 0);
   return useRouteFrom(router, dispatch);
 }
 
 export function useLocation() {
   const router = useRouterContext();
-  const [ count, dispatch ] = useReducer(c => c + 1, 0);
+  const [ , dispatch ] = useReducer(c => c + 1, 0);
   useInsertionEffect(() => {
     const consumer = { lOps: true, dispatch };
     router.addConsumer(consumer);
@@ -634,8 +637,53 @@ export function useLocation() {
       router.removeConsumer(consumer);
     };
   });
-
   return router.location;
+}
+
+export function useSequentialRouter(options) {
+  options = useRouterOptions(options);
+  const router = useMemo(() => new Router(options), [ options ]);
+  useEffect(() => router.attachListeners(), [ router ]);
+  // track changes make by hook consumer
+  const controller = useMemo(() => new RouteController(router, false), [ router ]);
+  const { parts, query } = controller;
+  const dispatch = () => {
+    controller.onRenderStart();
+    controller.onRenderEnd();
+  };
+  useInsertionEffect(() => {
+    const pOps = parts.ops, qOps = query.ops;
+    const consumer = { pOps, qOps, dispatch, atRoot: false, async: true };
+    router.addConsumer(consumer);
+    router.addTraps(controller.traps);
+    return () => {
+      router.removeConsumer(consumer);
+      router.removeTraps(controller.traps);
+    };
+  });
+  const methods = useMemo(() => {
+    const { pushing, replacing, throw404, rethrow, trap } = controller;
+    const { createContext, createBoundary } = router;
+    return { pushing, replacing, throw404, rethrow, trap, createContext, createBoundary };
+  }, [ router, controller ]);
+  return [ parts.proxy, query.proxy, methods ];
+}
+
+function useRouterOptions(options = {}) {
+  const {
+    basePath = '/',
+    location,
+    trailingSlash = false,
+    allowExtraParts = false,
+    transitionLimit = 50,
+    keepExtraQuery = '',
+  } = options;
+  if (!basePath.endsWith('/')) {
+    throw new Error('basePath should have a trailing slash');
+  }
+  return useMemo(() => {
+    return { location, basePath, trailingSlash, allowExtraParts, transitionLimit, keepExtraQuery };
+  }, [ location, basePath, trailingSlash, allowExtraParts, transitionLimit, keepExtraQuery ]);
 }
 
 function useRouterContext() {
