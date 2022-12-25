@@ -20,12 +20,14 @@ export async function withJSDOM(href, cb) {
       jsdom.reconfigure({ url: href });
     },
     go(offset) {
-      const index = historyIndex + offset;
-      const { href, state } = history[index];
-      currentState = state;
-      historyIndex = index;
-      jsdom.reconfigure({ url: href });
-      window.dispatchEvent(new PopStateEvent('popstate'));
+      setTimeout(() => {
+        const index = historyIndex + offset;
+        const { href, state } = history[index];
+        currentState = state;
+        historyIndex = index;
+        jsdom.reconfigure({ url: href });
+        window.dispatchEvent(new PopStateEvent('popstate'));
+      }, 0);
     },
     forward() {
       this.go(+1);

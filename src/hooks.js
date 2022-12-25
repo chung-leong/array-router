@@ -1,7 +1,7 @@
 import { useMemo, useReducer, useState, useCallback, useEffect, useInsertionEffect, useContext, useTransition,
   createContext, createElement } from 'react';
 import { ErrorBoundary } from './error-boundary.js';
-import { RouteError, RouteChangeInterruption } from './errors.js';
+import { RouteError, RouteChangeInterruption, RouteChangePending } from './errors.js';
 
 const RouterContext = createContext();
 
@@ -14,7 +14,7 @@ class Router {
   lastError = null;
   history = [ { index: 0, href: '' } ];
   historyIndex = 0;
-  traps = { change: [], '404': [], error: [] };
+  traps = { detour: [], error: [] };
   startTransition = null;
   updateRoot = null;
 
@@ -54,7 +54,7 @@ class Router {
   }
 
   updateBrowserState(push) {
-    if (typeof(window) === 'object') {
+    if (typeof(window) === 'object' && typeof(push) === 'boolean') {
       const { history } = window;
       const { href } = this.location;
       const index = this.historyIndex + (push ? 1 : 0);
@@ -108,10 +108,6 @@ class Router {
       // apply the change and return true to indicate that rendering can continue
       this.change(error.url, false);
       return true;
-    } else if (error instanceof RouteError) {
-      if (this.activate404Traps(error) === true) {
-        return true;
-      }
     }
     const result = this.activateErrorTraps(error);
     if (typeof(result) === 'boolean') {
@@ -162,10 +158,10 @@ class Router {
     }
   }
 
-  activateChangeTraps(reason, url, internal = true) {
+  activateDetourTraps(reason, url, internal = true) {
     const { basePath } = this.options;
     const promises = [];
-    const fns = this.traps.change;
+    const fns = this.traps.detour;
     if (fns.length > 0) {
       let parts = null, query = null;
       if (internal) {
@@ -179,37 +175,28 @@ class Router {
         }
       }
       for (const fn of fns) {
-        const promise = fn(reason, parts, query, url);
-        if (promise) {
-          promises.push(promise);
+        const err = new RouteChangePending(url, parts, query, reason, internal);
+        const result = fn(err);
+        if (result === true) {
+          promises.push(err.promise);
         }
       }
     }
-    return (promises.length > 0) ? Promise.all(promises).catch(() => {}) : null;
-  }
-
-  activate404Traps(error) {
-    const fns = this.traps['404'];
-    if (fns.length > 0) {
-      // see if a trap function can fix the situation
-      const pCopy = [ ...this.parts ];
-      const qCopy = { ...this.query };
-      for (const fn of fns) {
-        if (fn(error, pCopy, qCopy) === true) {
-          const url = this.createURL(pCopy, qCopy);
-          this.change(url, false);
-          return true;
-        }
-      }
-    }
+    return (promises.length > 0) ? Promise.all(promises) : null;
   }
 
   activateErrorTraps(error) {
-    const fns = this.traps['error'];
-    for (const fn of fns) {
-      const result = fn(error);
-      if (typeof(result) === 'boolean') {
-        return result;
+    const fns = this.traps.error;
+    if (fns.length > 0) {
+      for (const fn of fns) {
+        const result = fn(error);
+        if (typeof(result) === 'boolean') {
+          if (result && error instanceof RouteError && error.redirected) {
+            const url = this.createURL(error.newParts, error.newQuery);
+            this.change(url, false);
+          }
+          return result;
+        }
       }
     }
   }
@@ -247,7 +234,7 @@ class Router {
           if (link && !link.target && !link.download) {
             const url = new URL(link);
             const internal = (link.origin === window.location.origin && link.pathname.startsWith(basePath));
-            const promise = this.activateChangeTraps('link', url, internal);
+            const promise = this.activateDetourTraps('link', url, internal);
             if (internal) {
               if (promise) {
                 promise.then(() => this.change(url, true, true));
@@ -264,26 +251,34 @@ class Router {
           }
         }
       };
-      let ignoreCount = 0;
+      let resolve = null;
       const onPopState = (evt) => {
-        if (ignoreCount > 0) {
-          ignoreCount--;
+        if (resolve) {
+          resolve();
+          resolve = null;
           return;
         }
-        const url = new URL(window.location)
+        const { history } = window;
         const { index } = history.state;
-        const direction = (index > this.historyIndex) ? 'forward' : 'back';
-        const promise = this.activateChangeTraps(direction, url);
+        const url = new URL(window.location)
+        const delta = index - this.historyIndex;
+        const direction = (delta > 0) ? 'forward' : 'back';
+        const promise = this.activateDetourTraps(direction, url);
         if (promise) {
-          // revert the change and reapply it when the promise is fulfilled
-          ignoreCount++;
-          history.go(direction === 'back' ? +1 : -1);
+          function revert(delta) {
+            history.go(delta);
+            return new Promise(r => resolve = r);
+          }
+          // change the URL back if the change isn't immediately approved
+          let reversion;
+          let timeout = setTimeout(() => reversion = revert(-delta), 0);
           promise.then(() => {
-            ignoreCount++;
-            history.go(direction === 'back' ? -1 : +1);
             this.historyIndex = index;
+            clearTimeout(timeout);
             this.change(url);
-          });
+            // apply the change if it got reverted
+            reversion?.then(() => revert(delta));
+          }, (err) => {});
         } else {
           this.historyIndex = index;
           this.change(url);
@@ -490,7 +485,7 @@ class RouteController {
           if (this.atRoot) {
             this.router.change(url, false);
           } else {
-            throw new RouteChangeInterruption('Rendering interrupted by route change', url);
+            throw new RouteChangeInterruption(url);
           }
         }
       }
@@ -518,11 +513,12 @@ class RouteController {
   }
 
   throw404 = () => {
-    throw new RouteError(this.router.location);
+    const { location, parts, query } = this.router;
+    throw new RouteError(location, parts, query);
   }
 
   trap = (type, fn) => {
-    if (type !== 'change' && type != '404' && type !== 'error') {
+    if (type !== 'detour' && type !== 'error') {
       throw new Error(`Unknown trap type: ${type}`);
     }
     this.router.removeTraps(this.traps);
@@ -560,7 +556,9 @@ function RouterInspection({ router, allowExtraParts, extraQueryTest }) {
           } while (pCopy.length > 0);
         });
         if (extraParts.length > 0) {
-          router.reportError(new RouteError(router.location));
+          const { location, parts, query } = router;
+          const err = new RouteError(location, parts, query);
+          router.reportError(err);
         }
       }
       if (removed.length > 0) {

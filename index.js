@@ -6,6 +6,8 @@ export {
 } from './src/hooks.js';
 export {
   RouteError,
+  RouteChangePending,
+  RouteChangeInterruption,
 } from './src/errors.js';
 export {
   arrayProxy,
