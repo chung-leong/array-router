@@ -114,6 +114,34 @@ export function arrayProxy(array, descriptors) {
       }
       return true;
     },
+    deleteProperty(_, name) {
+      const desc = descriptors[name];
+      let indices = [];
+      if (desc === undefined) {
+        return false;
+      } else if (typeof(desc) === 'number') {
+        indices.push(desc);
+      } else if (typeof(desc) === 'object') {
+        if ('$' in desc) {
+          for (const [ key, index ] of Object.entries(desc)) {
+            if (key === '\b') {
+              continue;
+            }
+            if (key !== '$' && array[index] !== key) {
+              return false;
+            }
+            indices.push(desc);
+          }
+        } else if (desc.set) {
+          return desc.set.call(this, array, undefined);
+        } else {
+          return false;
+        }
+      }
+      const lowest = Math.min(...indices);
+      array.splice(lowest);
+      return true;
+    },
     has(_, name) {
       return !!this.getOwnPropertyDescriptor(_, name);
     },

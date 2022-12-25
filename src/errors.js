@@ -15,7 +15,6 @@ export class RouteError extends Error {
     this.newParts = parts;
     this.newQuery = query;
     this.redirected = true;
-    return true;
   }
 }
 
@@ -38,15 +37,18 @@ export class RouteChangePending extends Error {
       this.resolve = r1;
       this.reject = r2;
     });
+    this.onSettlement = null;
   }
 
   async proceed() {
     this.resolve();
+    this.onSettlement?.();
     // ensure that this function returns after .then() handlers attached to the promise have run
     await this.promise;
   }
 
   prevent() {
+    this.onSettlement?.();
     this.reject(new Error('Detour rejected'));
   }
 }
