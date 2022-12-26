@@ -977,6 +977,7 @@ describe('#useRoute()', function() {
       }
       const el = createElement(Root, { location: 'http://example.test/hello/world/bagel?a=1&b=123' });
       await render(el);
+      await delay(10);
       expect(toJSON()).to.equal('Page not found: /hello/world/bagel');
     });
   })
@@ -1010,6 +1011,7 @@ describe('#useRoute()', function() {
       await render(el);
       expect(toJSON()).to.equal('world 1');
       await act(() => p[0] = 'goodbye');
+      await delay(10);
       expect(toJSON()).to.equal('world 123');
       await act(() => p[0] = 'hello');
       expect(toJSON()).to.equal('world undefined');

@@ -1,4 +1,4 @@
-import { useMemo, useReducer, useState, useCallback, useEffect, useInsertionEffect, useContext, useTransition,
+import { useMemo, useReducer, useState, useCallback, useEffect, useContext, useTransition,
   createContext, createElement } from 'react';
 import { ErrorBoundary } from './error-boundary.js';
 import { RouteError, RouteChangeInterruption, RouteChangePending } from './errors.js';
@@ -384,9 +384,12 @@ class RouteComponent {
     return this.shadow;
   }
 
-  clear() {
+  clearShadow() {
     this.shadow = null;
-    this.ops = [];
+  }
+
+  clearOps() {
+    this.ops.splice(0);
   }
 }
 
@@ -417,8 +420,8 @@ class RouteController {
   }
 
   onRenderStart() {
-    this.parts.clear();
-    this.query.clear();
+    this.parts.clearOps();
+    this.query.clearOps();
     this.rendering = true;
   }
 
@@ -461,8 +464,8 @@ class RouteController {
         }
         // clear the copies used by the proxies, at this point the router's copy
         // should include the changes made by the proxies
-        this.parts.clear();
-        this.query.clear();
+        this.parts.clearShadow();
+        this.query.clearShadow();
         this.newLocation = undefined;
         this.push = undefined;
         this.scheduled = false;
@@ -545,7 +548,10 @@ function RouterInspection({ router, allowExtraParts, extraQueryTest }) {
   const [ , dispatch ] = useReducer(c => c + 1, 0);
   // hook runs everytime dispatch is invoked
   useEffect(() => {
-    if (!router.lastError) {
+    const check = () => {
+      if (router.lastError) {
+        return;
+      }
       const { parts, query, removed, consumers } = router;
       if (!allowExtraParts && parts.length > 0) {
         const opLists = consumers.map(c => c.pOps);
@@ -592,10 +598,12 @@ function RouterInspection({ router, allowExtraParts, extraQueryTest }) {
           router.change(url, false);
         }
       }
-    }
+    };
+    const timeout = setTimeout(check, 0);
     const consumer = { lOps: true, dispatch };
     router.addConsumer(consumer);
     return () => {
+      clearTimeout(timeout);
       router.removeConsumer(consumer);
     };
   });
@@ -629,13 +637,13 @@ export function useRoute() {
 export function useLocation() {
   const router = useRouterContext();
   const [ , dispatch ] = useReducer(c => c + 1, 0);
-  useInsertionEffect(() => {
+  useEffect(() => {
     const consumer = { lOps: true, dispatch };
     router.addConsumer(consumer);
     return () => {
       router.removeConsumer(consumer);
     };
-  });
+  }, []);
   return router.location;
 }
 
@@ -650,16 +658,16 @@ export function useSequentialRouter(options) {
     controller.onRenderStart();
     controller.onRenderEnd();
   };
-  useInsertionEffect(() => {
+  useEffect(() => {
     const pOps = parts.ops, qOps = query.ops;
-    const consumer = { pOps, qOps, dispatch, atRoot: false, async: true };
+    const consumer = { pOps, qOps, dispatch, atRoot: false };
     router.addConsumer(consumer);
     router.addTraps(controller.traps);
     return () => {
       router.removeConsumer(consumer);
       router.removeTraps(controller.traps);
     };
-  });
+  }, [ parts, query, router ]);
   const methods = useMemo(() => {
     const { pushing, replacing, throw404, rethrow, trap } = controller;
     const { createContext, createBoundary } = router;
@@ -702,9 +710,7 @@ function useRouteFrom(router, dispatch, atRoot = false) {
   useEffect(() => controller.onRenderEnd());
   // monitor route changes; dispatch is invoked only if the ops performed on
   // the route components yield different results with a new route;
-  // using useInsertionEffect so that the useEffect hook of RouterInspection will
-  // see the consumer created by the root component
-  useInsertionEffect(() => {
+  useEffect(() => {
     const pOps = parts.ops, qOps = query.ops;
     const consumer = { pOps, qOps, dispatch, atRoot };
     router.addConsumer(consumer);
@@ -713,7 +719,7 @@ function useRouteFrom(router, dispatch, atRoot = false) {
       router.removeConsumer(consumer);
       router.removeTraps(controller.traps);
     };
-  });
+  }, [ parts, query, router, atRoot ]);
   const methods = useMemo(() => {
     const { pushing, replacing, throw404, rethrow, trap } = controller;
     return { pushing, replacing, throw404, rethrow, trap };
