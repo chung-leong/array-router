@@ -190,11 +190,12 @@ class Router {
     if (fns.length > 0) {
       for (const fn of fns) {
         const result = fn(error);
+        if (error instanceof RouteError && error.redirected) {
+          const url = this.createURL(error.newParts, error.newQuery);
+          this.change(url, false);
+          return true;
+        }
         if (typeof(result) === 'boolean') {
-          if (result && error instanceof RouteError && error.redirected) {
-            const url = this.createURL(error.newParts, error.newQuery);
-            this.change(url, false);
-          }
           return result;
         }
       }
@@ -293,7 +294,7 @@ class Router {
     }
   }
 
-  createContext(children) {
+  createContext = (children) => {
     const { extraQueryTest } = this;
     const { allowExtraParts, transitionLimit } = this.options;
     const transition = createElement(RouterTransition, { router: this, transitionLimit });
@@ -303,7 +304,7 @@ class Router {
     return createElement(RouterContext.Provider, { value: this }, children, transition, inspection);
   }
 
-  createBoundary(children) {
+  createBoundary = (children) => {
     return createElement(ErrorBoundary, { onError: (err) => this.reportError(err) }, children);
   }
 }
@@ -537,7 +538,7 @@ function RouterTransition({ router, transitionLimit }) {
   useEffect(() => {
     const timeout = (callback && isPending) ? setTimeout(callback, transitionLimit) : 0;
     return () => clearTimeout(timeout);
-  }, [ callback, isPending ]);
+  }, [ callback, isPending, transitionLimit ]);
 }
 
 function RouterInspection({ router, allowExtraParts, extraQueryTest }) {
@@ -694,7 +695,7 @@ function useRouterContext() {
 
 function useRouteFrom(router, dispatch, atRoot = false) {
   // track changes make by hook consumer
-  const controller = useMemo(() => new RouteController(router, atRoot), [ router ]);
+  const controller = useMemo(() => new RouteController(router, atRoot), [ router, atRoot ]);
   const { parts, query } = controller;
   // track whether the component is rendering
   controller.onRenderStart();
