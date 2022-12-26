@@ -20,7 +20,6 @@ class Router {
 
   constructor(options) {
     this.options = options;
-    this.extraQueryTest = (options.keepExtraQuery) ? new RegExp(options.keepExtraQuery) : null;
     const url = new URL(options.location ?? globalThis.location); // eslint-disable-line no-undef
     this.change(url, false, true);
   }
@@ -295,13 +294,9 @@ class Router {
   }
 
   createContext = (children) => {
-    const { extraQueryTest } = this;
-    const { allowExtraParts, transitionLimit } = this.options;
+    const { transitionLimit } = this.options;
     const transition = createElement(RouterTransition, { router: this, transitionLimit });
-    // inspection component
-    const inspection = createElement(RouterInspection, { router: this, allowExtraParts, extraQueryTest });
-    // provide context to any children using useRoute()
-    return createElement(RouterContext.Provider, { value: this }, children, transition, inspection);
+    return createElement(RouterContext.Provider, { value: this }, children, transition);
   }
 
   createBoundary = (children) => {
@@ -544,71 +539,6 @@ function RouterTransition({ router, transitionLimit }) {
   }, [ callback, isPending, transitionLimit ]);
 }
 
-function RouterInspection({ router, allowExtraParts, extraQueryTest }) {
-  const [ , dispatch ] = useReducer(c => c + 1, 0);
-  // hook runs everytime dispatch is invoked
-  useEffect(() => {
-    const check = () => {
-      if (router.lastError) {
-        return;
-      }
-      const { parts, query, removed, consumers } = router;
-      if (!allowExtraParts && parts.length > 0) {
-        const opLists = consumers.map(c => c.pOps);
-        const extraParts = findExtraFields(opLists, function*() {
-          const pCopy = [ ...parts ];
-          do {
-            const name = pCopy.pop();
-            yield [ name, pCopy ];
-          } while (pCopy.length > 0);
-        });
-        if (extraParts.length > 0) {
-          const { location, parts, query } = router;
-          const err = new RouteError(location, parts, query);
-          router.reportError(err);
-        }
-      }
-      if (removed.length > 0) {
-        const opLists = consumers.map(c => c.qOps);
-        const extraFields = findExtraFields(opLists, function*() {
-          // get the query variables used by the unmounted components
-          const names = [];
-          for (const { qOps } of removed) {
-            if (qOps) {
-              for (const { name } of qOps) {
-                if (name && !names.includes(name) && !extraQueryTest?.test(name)) {
-                  names.push(name);
-                }
-              }
-            }
-          }
-          const qCopy = { ...query };
-          do {
-            const name = names.pop();
-            delete qCopy[name];
-            yield [ name, qCopy ];
-          } while (names.length > 0);
-        });
-        if (extraFields.length > 0) {
-          const newQuery = { ...query };
-          for (const name of extraFields) {
-            delete newQuery[name];
-          }
-          const url = router.createURL(parts, newQuery);
-          router.change(url, false);
-        }
-      }
-    };
-    const timeout = setTimeout(check, 0);
-    const consumer = { lOps: true, dispatch };
-    router.addConsumer(consumer);
-    return () => {
-      clearTimeout(timeout);
-      router.removeConsumer(consumer);
-    };
-  });
-}
-
 export function useRouter(options) {
   options = useRouterOptions(options);
   const router = useMemo(() => new Router(options), [ options ]);
@@ -649,7 +579,7 @@ export function useLocation() {
 
 export function useSequentialRouter(options) {
   options = useRouterOptions(options);
-  const router = useMemo(() => new Router(options), [ options ]);
+  const router = useMemo(() => new Router(options, true), [ options ]);
   useEffect(() => router.attachListeners(), [ router ]);
   // track changes make by hook consumer
   const controller = useMemo(() => new RouteController(router, false), [ router ]);
@@ -681,16 +611,14 @@ function useRouterOptions(options = {}) {
     basePath = '/',
     location,
     trailingSlash = false,
-    allowExtraParts = false,
     transitionLimit = 50,
-    keepExtraQuery = '',
   } = options;
   if (!basePath.endsWith('/')) {
     throw new Error('basePath should have a trailing slash');
   }
   return useMemo(() => {
-    return { location, basePath, trailingSlash, allowExtraParts, transitionLimit, keepExtraQuery };
-  }, [ location, basePath, trailingSlash, allowExtraParts, transitionLimit, keepExtraQuery ]);
+    return { location, basePath, trailingSlash, transitionLimit };
+  }, [ location, basePath, trailingSlash, transitionLimit ]);
 }
 
 function useRouterContext() {
@@ -735,26 +663,6 @@ function isResultDifferent(ops, object) {
       return true;
     }
   }
-}
-
-function findExtraFields(opLists, cb) {
-  const extra = [];
-  const gen = cb();
-  // generator yields the name of the missing field and a copy of the object without it
-  for (const [ name, object ] of gen) {
-    let needed = false;
-    for (const ops of opLists) {
-      // if any operation produces different result, then the field is needed
-      if (ops && isResultDifferent(ops, object)) {
-        needed = true;
-        break;
-      }
-    }
-    if (!needed) {
-      extra.push(name);
-    }
-  }
-  return extra;
 }
 
 function compareResult(a, b) {

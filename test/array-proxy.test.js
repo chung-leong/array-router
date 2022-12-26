@@ -222,4 +222,151 @@ describe('#arrayProxy()', function() {
     });
     expect(() => proxy.world = 'Hello').to.throw();
   })
+  it('should remove all following parts when a property is deleted', function() {
+    const array = [ 'forums', '123', 'messages', '18' ];
+    const proxy = arrayProxy(array, {
+      categoryId: {
+        "categories": 0,
+        $: 1,
+        ...removing,
+      },
+      productId: {
+        "products": 2,
+        $: 3,
+        "summary": 4,
+        ...removing,
+      },
+      forumId: {
+        "forums": 0,
+        $: 1,
+        ...removing,
+      },
+      messageId: {
+        "messages": 2,
+        $: 3
+      }
+    });
+    delete proxy.messageId;
+    expect(array).to.eql([ 'forums', '123' ]);
+    delete proxy.forumId;
+    expect(array).to.eql([]);
+  })
+  it('should remove all following parts when a property is described using a number', function() {
+    const array = [ 'forums', '123', 'messages', '18' ];
+    const proxy = arrayProxy(array, {
+      forumId: 1,
+      messageId: 3,
+    });
+    delete proxy.messageId;
+    expect(array).to.eql([ 'forums', '123', 'messages' ]);
+    delete proxy.forumId;
+    expect(array).to.eql([ 'forums' ]);
+  })
+  it('should remove all following parts when a property set to undefined', function() {
+    const array = [ 'forums', '123', 'messages', '18' ];
+    const proxy = arrayProxy(array, {
+      categoryId: {
+        "categories": 0,
+        $: 1,
+        ...removing,
+      },
+      productId: {
+        "products": 2,
+        $: 3,
+        "summary": 4,
+        ...removing,
+      },
+      forumId: {
+        "forums": 0,
+        $: 1,
+        ...removing,
+      },
+      messageId: {
+        "messages": 2,
+        $: 3
+      }
+    });
+    proxy.messageId = undefined;
+    expect(array).to.eql([ 'forums', '123' ]);
+    proxy.forumId = undefined;
+    expect(array).to.eql([]);
+  })
+  it('should call setter when delete is used', function() {
+    const array = [ 'forums', '123', 'messages', '18' ];
+    const proxy = arrayProxy(array, {
+      forumId: {
+        get: (arr) => arr[1],
+        set: (arr, value) => {
+          if (value === undefined) {
+            arr.splice(0);
+          }
+          return true;
+        },
+      },
+    });
+    delete proxy.forumId;
+    expect(array).to.eql([]);
+  })
+  it('should fail when trying to delete property without a descriptor', function() {
+    const array = [ 'forums', '123', 'messages', '18' ];
+    const proxy = arrayProxy(array, {
+      categoryId: {
+        "categories": 0,
+        $: 1,
+        ...removing,
+      },
+      productId: {
+        "products": 2,
+        $: 3,
+        "summary": 4,
+        ...removing,
+      },
+      forumId: {
+        "forums": 0,
+        $: 1,
+        ...removing,
+      },
+      messageId: {
+        "messages": 2,
+        $: 3
+      }
+    });
+    expect(() => delete proxy.jerk).to.throw();
+  })
+  it('should fail when trying to delete property with missing static string', function() {
+    const array = [ 'forums', '123', 'messages', '18' ];
+    const proxy = arrayProxy(array, {
+      categoryId: {
+        "categories": 0,
+        $: 1,
+        ...removing,
+      },
+      productId: {
+        "products": 2,
+        $: 3,
+        "summary": 4,
+        ...removing,
+      },
+      forumId: {
+        "forums": 0,
+        $: 1,
+        ...removing,
+      },
+      messageId: {
+        "messages": 2,
+        $: 3
+      }
+    });
+    expect(() => delete proxy.productId).to.throw();
+    expect(() => delete proxy.categoryId).to.throw();
+  })
+  it('should fail when deleting a property with a setter', function() {
+    const array = [ 'forums', '123', 'messages', '18' ];
+    const proxy = arrayProxy(array, {
+      forumId: {
+        get: (arr) => arr[1],
+      },
+    });
+    expect(() => delete proxy.forumId).to.throw();
+  })
 });

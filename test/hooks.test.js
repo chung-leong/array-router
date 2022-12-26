@@ -115,7 +115,7 @@ describe('#useRouter()', function() {
     await withTestRenderer(async ({ render, toJSON, act }) => {
       let p, q, count = 0;
       function Test({ location }) {
-        const provide = useRouter({ location, allowExtraParts: true });
+        const provide = useRouter({ location });
         count++;
         return provide((parts, query) => {
           p = parts;
@@ -139,7 +139,7 @@ describe('#useRouter()', function() {
     await withTestRenderer(async ({ render, toJSON, act }) => {
       let p, q, count = 0;
       function Test({ location }) {
-        const provide = useRouter({ location, allowExtraParts: true });
+        const provide = useRouter({ location });
         count++;
         return provide((parts, query) => {
           p = parts;
@@ -165,7 +165,7 @@ describe('#useRouter()', function() {
     await withTestRenderer(async ({ render, toJSON, act }) => {
       let p, q, count = 0;
       function Test({ location }) {
-        const provide = useRouter({ location, allowExtraParts: true });
+        const provide = useRouter({ location });
         count++;
         return provide((parts, query) => {
           p = parts;
@@ -654,7 +654,7 @@ describe('#useRoute()', function() {
     await withTestRenderer(async ({ render, toJSON, act }) => {
       let p, q, rootCount = 0;
       function Root({ location }) {
-        const provide = useRouter({ location, allowExtraParts: true });
+        const provide = useRouter({ location });
         rootCount++;
         return provide((parts, query) => {
           p = parts;
@@ -949,119 +949,6 @@ describe('#useRoute()', function() {
       expect(toJSON()).to.eql([ 'world 1', ' ', 'world 144' ]);
     });
   })
-  it('should trigger 404 error when path has parts going untouched', async function() {
-    await withTestRenderer(async ({ render, toJSON, act }) => {
-      let p;
-      function Root({ location }) {
-        const provide = useRouter({ location });
-        return provide((parts) => {
-          p = parts;
-          try {
-            if (parts[0] === 'hello') {
-              return createElement(CompA);
-            } else {
-              return createElement(CompB);
-            }
-          } catch (err) {
-            return err.message;
-          }
-        });
-      }
-      function CompA() {
-        const [ parts, { a } ] = useRoute();
-        return `${parts[1]} ${a}`;
-      }
-      function CompB() {
-        const [ parts, { b } ] = useRoute();
-        return `${parts[1]} ${b}`;
-      }
-      const el = createElement(Root, { location: 'http://example.test/hello/world/bagel?a=1&b=123' });
-      await render(el);
-      await delay(10);
-      expect(toJSON()).to.equal('Page not found: /hello/world/bagel');
-    });
-  })
-  it('should removed query variables no longer being used', async function() {
-    await withTestRenderer(async ({ render, toJSON, act }) => {
-      let p;
-      function Root({ location }) {
-        const provide = useRouter({ location });
-        return provide((parts) => {
-          p = parts;
-          try {
-            if (parts[0] === 'hello') {
-              return createElement(CompA);
-            } else {
-              return createElement(CompB);
-            }
-          } catch (err) {
-            return err.message;
-          }
-        });
-      }
-      function CompA() {
-        const [ parts, { a } ] = useRoute();
-        return `${parts[1]} ${a}`;
-      }
-      function CompB() {
-        const [ parts, { b } ] = useRoute();
-        return `${parts[1]} ${b}`;
-      }
-      const el = createElement(Root, { location: 'http://example.test/hello/world/?a=1&b=123' });
-      await render(el);
-      expect(toJSON()).to.equal('world 1');
-      await act(() => p[0] = 'goodbye');
-      await delay(10);
-      expect(toJSON()).to.equal('world 123');
-      await act(() => p[0] = 'hello');
-      expect(toJSON()).to.equal('world undefined');
-    });
-  })
-  it('should retain query variables on whitelist', async function() {
-    await withTestRenderer(async ({ render, toJSON, act }) => {
-      let p;
-      function Root({ location }) {
-        const provide = useRouter({ location, keepExtraQuery: '^a|b|c$' });
-        return provide((parts) => {
-          p = parts;
-          try {
-            if (parts[0] === 'hello') {
-              return createElement(CompA);
-            } else if (parts[0] === 'goodbye') {
-              return createElement(CompB);
-            } else {
-              return createElement(CompC);
-            }
-          } catch (err) {
-            return err.message;
-          }
-        });
-      }
-      function CompA() {
-        const [ parts, { a } ] = useRoute();
-        return `${parts[1]} ${a}`;
-      }
-      function CompB() {
-        const [ parts, { b } ] = useRoute();
-        return `${parts[1]} ${b}`;
-      }
-      function CompC() {
-        const [ parts ] = useRoute();
-        const location = useLocation();
-        return `${parts[1]} ${location}`;
-      }
-      const el = createElement(Root, { location: 'http://example.test/hello/world/?a=1&b=123&c=77' });
-      await render(el);
-      expect(toJSON()).to.equal('world 1');
-      await act(() => p[0] = 'goodbye');
-      expect(toJSON()).to.equal('world 123');
-      await act(() => p[0] = 'hello');
-      expect(toJSON()).to.equal('world 1');
-      await act(() => p[0] = 'die');
-      // note the lack of trailing slash
-      expect(toJSON()).to.equal('world http://example.test/die/world?a=1&b=123&c=77');
-    });
-  })
 })
 
 describe('#useLocation()', function() {
@@ -1185,9 +1072,16 @@ describe('#useLocation()', function() {
         expect(detour.internal).to.be.true;
         expect(node.innerHTML).to.equal('<a href="/somewhere?a=b">hello</a>');
         expect(window.location.href).to.equal('http://example.test/hello/');
+        let settlementCount = 0;
+        detour.onSettlement = () => settlementCount++;
+        await act(() => detour.prevent());
+        expect(window.location.href).to.equal('http://example.test/hello/');
+        await act(() => a.click());
+        detour.onSettlement = () => settlementCount++;
         await act(() => detour.proceed());
         expect(node.innerHTML).to.equal('<a href="/somewhere?a=b">somewhere</a>');
         expect(window.location.href).to.equal('http://example.test/somewhere/?a=b');
+        expect(settlementCount).to.equal(2);
       });
     });
   })

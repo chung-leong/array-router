@@ -79,6 +79,9 @@ export function arrayProxy(array, descriptors) {
       return desciptor?.value;
     },
     set(_, name, value) {
+      if (value === undefined ){
+        return this.deleteProperty(_, name);
+      }
       const desc = descriptors[name];
       if (desc === undefined) {
         return false;
@@ -130,7 +133,7 @@ export function arrayProxy(array, descriptors) {
             if (key !== '$' && array[index] !== key) {
               return false;
             }
-            indices.push(desc);
+            indices.push(index);
           }
         } else if (desc.set) {
           return desc.set.call(this, array, undefined);
