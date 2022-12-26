@@ -1,5 +1,5 @@
 import { expect } from 'chai';
-import { createElement, Fragment } from 'react';
+import { createElement, useState, Fragment } from 'react';
 import { withTestRenderer } from './test-renderer.js';
 import { withJSDOM } from './jsdom.js';
 import { withReactDOM } from './dom-renderer.js';
@@ -9,6 +9,7 @@ import {
   useRouter,
   useRoute,
   useLocation,
+  useSequentialRouter,
   RouteError,
   RouteChangePending,
 } from '../index.js';
@@ -1159,6 +1160,59 @@ describe('#useLocation()', function() {
         expect(detour.internal).to.be.false;
         expect(detour.url.href).to.equal('http://somewhere.net/')
         expect(window.location.href).to.equal('http://example.test/hello/');
+      });
+    });
+  })
+})
+
+describe('#useSequentialRouter()', function() {
+  it('should create a router for async code', async function() {
+    await withJSDOM('http://example.test/hello', async () => {
+      await withReactDOM(async ({ render, toJSON, act, node }) => {
+        let detour;
+        function Test() {
+          const [ parts, query, { createContext, createBoundary, trap } ] = useSequentialRouter();
+          const [ text, setText ] = useState(parts[0]);
+          trap('detour', async (d) => {
+            detour = d;
+            await act(() => detour);
+            setText(parts[0]);
+          });
+          const el = createElement('a', { href: '/somewhere' }, text);
+          const eb = createBoundary(el);
+          return createContext(eb);
+        }
+        const el = createElement(Test);
+        await render(el);
+        expect(node.innerHTML).to.equal('<a href="/somewhere">hello</a>');
+        const [ a ] = node.getElementsByTagName('A');
+        await act(() => a.click());
+        await act(() => detour.proceed());
+        expect(node.innerHTML).to.equal('<a href="/somewhere">somewhere</a>');
+      });
+    });
+  })
+  it('should throw when proxy is accessed 1000 times in a row', async function() {
+    await withJSDOM('http://example.test/hello', async () => {
+      await withReactDOM(async ({ render, toJSON, act, node }) => {
+        let p;
+        function Test() {
+          const [ parts, query, { createContext, createBoundary } ] = useSequentialRouter();
+          p = parts;
+          const el = createElement('a', { href: '/somewhere' }, parts[0]);
+          const eb = createBoundary(el);
+          return createContext(eb);
+        }
+        const el = createElement(Test);
+        await render(el);
+        expect(node.innerHTML).to.equal('<a href="/somewhere">hello</a>');
+        const f = () => {
+          let x = [];
+          for (let i = 0; i < 1001; i++) {
+            x.push(p[0]);
+          }
+        };
+        expect(f).to.throw();
       });
     });
   })

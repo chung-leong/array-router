@@ -326,6 +326,11 @@ class RouteComponent {
     this.onAccess?.();
     let object = this.current();
     const value = object[name];
+    const loopCheck = () => {
+      if (this.ops.length > 1000) {
+        throw new Error('Infinite loop detected');
+      }
+    };
     if (typeof(value) === 'function') {
       // return a function that call the array's method and log the operation
       const self = this;
@@ -342,12 +347,14 @@ class RouteComponent {
         } else {
           // log the function call
           self.ops.push({ fn, result });
+          loopCheck();
         }
         return result;
       };
     } else {
       // log the retrieval
       this.ops.push({ name, result: value })
+      loopCheck();
       return value;
     }
   }
