@@ -21,6 +21,7 @@ class Router {
   constructor(options) {
     this.options = options;
     const url = new URL(options.location ?? globalThis.location); // eslint-disable-line no-undef
+    this.location = new URL(url.origin);
     this.change(url, false, true);
   }
 
@@ -78,28 +79,22 @@ class Router {
   }
 
   change(url, push, external = false) {
-    const initiating = !this.location;
-    if (initiating) {
-      this.location = new URL(url.origin);
-    }
     const { location, parts, query } = this;
-    if (initiating || location.href !== url.href) {
-      const pDiff = location.pathname !== url.pathname;
-      const qDiff = location.search !== url.search;
-      if (pDiff) {
-        this.updateParts(url.pathname);
-      }
-      if (qDiff) {
-        this.updateQuery(url.searchParams);
-      }
-      if (external) {
-        // recreate the URL so it confirms to trailing slash setting
-        url = this.createURL(parts, query);
-      }
-      location.href = url.href;
-      this.notifyConsumers({ pDiff, qDiff });
-      this.updateBrowserState(push);
+    const pDiff = location.pathname !== url.pathname;
+    const qDiff = location.search !== url.search;
+    if (pDiff) {
+      this.updateParts(url.pathname);
     }
+    if (qDiff) {
+      this.updateQuery(url.searchParams);
+    }
+    if (external) {
+      // recreate the URL so it confirms to trailing slash setting
+      url = this.createURL(parts, query);
+    }
+    location.href = url.href;
+    this.notifyConsumers({ pDiff, qDiff });
+    this.updateBrowserState(push);
   }
 
   reportError(error) {
@@ -226,6 +221,7 @@ class Router {
 
   attachListeners() {
     if (typeof(window) === 'object') {
+      const { location } = this;
       const { basePath } = this.options;
       const onLinkClick = (evt) => {
         const { target, button, defaultPrevented } = evt;
@@ -233,19 +229,21 @@ class Router {
           const link = target.closest('A');
           if (link && !link.target && !link.download) {
             const url = new URL(link);
-            const internal = (link.origin === window.location.origin && link.pathname.startsWith(basePath));
-            const promise = this.activateDetourTraps('link', url, internal);
-            if (internal) {
-              if (promise) {
-                promise.then(() => this.change(url, true, true));
-              } else {
-                this.change(url, true, true);
-              }
-              evt.preventDefault();
-            } else {
-              if (promise) {
-                promise.then(() => window.location.href = url);
+            const internal = (link.origin === location.origin && link.pathname.startsWith(basePath));
+            if (!internal || url.pathname !== location.pathname || url.search !== location.search) {
+              const promise = this.activateDetourTraps('link', url, internal);
+              if (internal) {
+                if (promise) {
+                  promise.then(() => this.change(url, true, true));
+                } else {
+                  this.change(url, true, true);
+                }
                 evt.preventDefault();
+              } else {
+                if (promise) {
+                  promise.then(() => window.location.href = url);
+                  evt.preventDefault();
+                }
               }
             }
           }
@@ -605,12 +603,15 @@ export function useSequentialRouter(options) {
       router.removeTraps(controller.traps);
     };
   }, [ parts, query, router ]);
-  const methods = useMemo(() => {
+  const methods1 = useMemo(() => {
     const { pushing, replacing, throw404, rethrow, trap } = controller;
+    return { pushing, replacing, throw404, rethrow, trap };
+  }, [ controller ]);
+  const methods2 = useMemo(() => {
     const { createContext, createBoundary } = router;
-    return { pushing, replacing, throw404, rethrow, trap, createContext, createBoundary };
-  }, [ router, controller ]);
-  return [ parts.proxy, query.proxy, methods ];
+    return { createContext, createBoundary };
+  }, [ router ])
+  return [ parts.proxy, query.proxy, methods1, methods2 ];
 }
 
 function useRouterOptions(options = {}) {

@@ -1086,6 +1086,29 @@ describe('#useLocation()', function() {
       });
     });
   })
+  it('should not trap links that only cause hash changes', async function() {
+    await withJSDOM('http://example.test/hello', async () => {
+      await withReactDOM(async ({ render, toJSON, act, node }) => {
+        let detour;
+        function Test() {
+          const provide = useRouter({ trailingSlash: true });
+          return provide((parts, query, { trap }) => {
+            trap('detour', (d) => {
+              detour = d;
+              return true;
+            });
+            return createElement('a', { href: '#world' }, parts[0]);
+          });
+        }
+        const el = createElement(Test);
+        await render(el);
+        expect(node.innerHTML).to.equal('<a href="#world">hello</a>');
+        const [ a ] = node.getElementsByTagName('A');
+        await act(() => a.click());
+        expect(detour).to.be.undefined;
+      });
+    });
+  })
   it('should allow the trapping of changes due to calling of history.go', async function() {
     await withJSDOM('http://example.test/hello', async () => {
       await withReactDOM(async ({ render, toJSON, act, node }) => {
@@ -1171,7 +1194,7 @@ describe('#useSequentialRouter()', function() {
       await withReactDOM(async ({ render, toJSON, act, node }) => {
         let detour;
         function Test() {
-          const [ parts, query, { createContext, createBoundary, trap } ] = useSequentialRouter();
+          const [ parts, query, { trap }, { createContext, createBoundary } ] = useSequentialRouter();
           const [ text, setText ] = useState(parts[0]);
           trap('detour', async (d) => {
             detour = d;
@@ -1197,7 +1220,7 @@ describe('#useSequentialRouter()', function() {
       await withReactDOM(async ({ render, toJSON, act, node }) => {
         let p;
         function Test() {
-          const [ parts, query, { createContext, createBoundary } ] = useSequentialRouter();
+          const [ parts, query, {}, { createContext, createBoundary } ] = useSequentialRouter();
           p = parts;
           const el = createElement('a', { href: '/somewhere' }, parts[0]);
           const eb = createBoundary(el);
