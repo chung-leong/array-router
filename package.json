@@ -1,6 +1,6 @@
 {
   "name": "array-router",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "description": "Lightweight router for React",
   "main": "index.js",
   "type": "module",

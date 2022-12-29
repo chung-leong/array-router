@@ -294,7 +294,7 @@ class Router {
   createContext = (children) => {
     const { transitionLimit } = this.options;
     const transition = createElement(RouterTransition, { router: this, transitionLimit });
-    return createElement(RouterContext.Provider, { value: this }, children, transition);
+    return createElement(RouterContext.Provider, { value: this }, transition, children);
   }
 
   createBoundary = (children) => {
