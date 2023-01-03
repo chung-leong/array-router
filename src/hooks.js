@@ -234,14 +234,14 @@ class Router {
               const promise = this.activateDetourTraps('link', url, internal);
               if (internal) {
                 if (promise) {
-                  promise.then(() => this.change(url, true, true));
+                  promise.then(() => this.change(url, true, true), () => {});
                 } else {
                   this.change(url, true, true);
                 }
                 evt.preventDefault();
               } else {
                 if (promise) {
-                  promise.then(() => window.location.href = url);
+                  promise.then(() => window.location.href = url, () => {});
                   evt.preventDefault();
                 }
               }
@@ -529,6 +529,21 @@ class RouteController {
     this.traps[type] = fn;
     this.router.addTraps(this.traps);
   }
+
+  detour = async (parts = [], query = {}, push = true) => {
+    try {
+      const url = this.router.createURL(parts, query);
+      await this.router.activateDetourTraps('link', url, true);
+      this.router.change(url, push, false);
+      return true;
+    } catch (err) {
+      return false;
+    }
+  }
+
+  isDetour = (err) => {
+    return (err instanceof RouteChangePending);
+  }
 }
 
 function RouterTransition({ router, transitionLimit }) {
@@ -604,8 +619,8 @@ export function useSequentialRouter(options) {
     };
   }, [ parts, query, router ]);
   const methods1 = useMemo(() => {
-    const { pushing, replacing, throw404, rethrow, trap } = controller;
-    return { pushing, replacing, throw404, rethrow, trap };
+    const { pushing, replacing, throw404, rethrow, trap, detour, isDetour } = controller;
+    return { pushing, replacing, throw404, rethrow, trap, detour, isDetour };
   }, [ controller ]);
   const methods2 = useMemo(() => {
     const { createContext, createBoundary } = router;
@@ -657,8 +672,8 @@ function useRouteFrom(router, dispatch, atRoot = false) {
     };
   }, [ parts, query, router, atRoot ]);
   const methods = useMemo(() => {
-    const { pushing, replacing, throw404, rethrow, trap } = controller;
-    return { pushing, replacing, throw404, rethrow, trap };
+    const { pushing, replacing, throw404, rethrow, trap, detour, isDetour } = controller;
+    return { pushing, replacing, throw404, rethrow, trap, detour, isDetour };
   }, [ controller ]);
   return [ parts.proxy, query.proxy, methods ];
 }

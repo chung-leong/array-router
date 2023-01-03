@@ -1050,12 +1050,12 @@ describe('#useLocation()', function() {
   it('should allow the trapping of changes due to click on link', async function() {
     await withJSDOM('http://example.test/hello', async () => {
       await withReactDOM(async ({ render, toJSON, act, node }) => {
-        let detour;
+        let error;
         function Test() {
           const provide = useRouter({ trailingSlash: true });
           return provide((parts, query, { trap }) => {
-            trap('detour', (d) => {
-              detour = d;
+            trap('detour', (err) => {
+              error = err;
               return true;
             });
             return createElement('a', { href: '/somewhere?a=b' }, parts[0]);
@@ -1066,23 +1066,65 @@ describe('#useLocation()', function() {
         expect(node.innerHTML).to.equal('<a href="/somewhere?a=b">hello</a>');
         const [ a ] = node.getElementsByTagName('A');
         await act(() => a.click());
-        expect(detour.reason).to.equal('link');
-        expect(detour.parts).to.eql([ 'somewhere' ]);
-        expect(detour.query).to.eql({ a: 'b' });
-        expect(detour.url.href).to.equal('http://example.test/somewhere?a=b');
-        expect(detour.internal).to.be.true;
+        expect(error.reason).to.equal('link');
+        expect(error.parts).to.eql([ 'somewhere' ]);
+        expect(error.query).to.eql({ a: 'b' });
+        expect(error.url.href).to.equal('http://example.test/somewhere?a=b');
+        expect(error.internal).to.be.true;
         expect(node.innerHTML).to.equal('<a href="/somewhere?a=b">hello</a>');
         expect(window.location.href).to.equal('http://example.test/hello/');
         let settlementCount = 0;
-        detour.onSettlement = () => settlementCount++;
-        await act(() => detour.prevent());
+        error.onSettlement = () => settlementCount++;
+        await act(() => error.prevent());
         expect(window.location.href).to.equal('http://example.test/hello/');
         await act(() => a.click());
-        detour.onSettlement = () => settlementCount++;
-        await act(() => detour.proceed());
+        error.onSettlement = () => settlementCount++;
+        await act(() => error.proceed());
         expect(node.innerHTML).to.equal('<a href="/somewhere?a=b">somewhere</a>');
         expect(window.location.href).to.equal('http://example.test/somewhere/?a=b');
         expect(settlementCount).to.equal(2);
+      });
+    });
+  })
+  it('should allow the initiation of a detour programmatically', async function() {
+    await withJSDOM('http://example.test/hello', async () => {
+      await withReactDOM(async ({ render, toJSON, act, node }) => {
+        let error, f, i;
+        function Test() {
+          const provide = useRouter({ trailingSlash: true });
+          return provide((parts, query, { trap, detour, isDetour }) => {
+            trap('detour', (err) => {
+              error = err;
+              return true;
+            });
+            f = detour;
+            i = isDetour;
+            return createElement('a', { href: '/somewhere?a=b' }, parts[0]);
+          });
+        }
+        const el = createElement(Test);
+        await render(el);
+        expect(node.innerHTML).to.equal('<a href="/somewhere?a=b">hello</a>');
+        expect(f).to.be.a('function');
+        const promise1 = f([ 'somewhere' ], { a: 'b' });
+        expect(i(error)).to.be.true;
+        expect(error.reason).to.equal('link');
+        expect(error.parts).to.eql([ 'somewhere' ]);
+        expect(error.query).to.eql({ a: 'b' });
+        expect(error.url.href).to.equal('http://example.test/somewhere/?a=b');
+        expect(error.internal).to.be.true;
+        expect(node.innerHTML).to.equal('<a href="/somewhere?a=b">hello</a>');
+        expect(window.location.href).to.equal('http://example.test/hello/');
+        await act(() => error.prevent());
+        expect(window.location.href).to.equal('http://example.test/hello/');
+        const result1 = await promise1;
+        expect(result1).to.be.false;
+        const promise2 = f([ 'somewhere' ], { a: 'b' });
+        await act(() => error.proceed());
+        expect(node.innerHTML).to.equal('<a href="/somewhere?a=b">somewhere</a>');
+        expect(window.location.href).to.equal('http://example.test/somewhere/?a=b');
+        const result2 = await promise2;
+        expect(result2).to.be.true;
       });
     });
   })
