@@ -549,10 +549,21 @@ class RouteController {
 function RouterTransition({ router, transitionLimit }) {
   const [ isPending, startTransition ] = useTransition();
   const [ callback, setCallback ] = useState();
+  const [ mounted, setMounted ] = useState(false);
   router.startTransition = (cb) => {
-    startTransition(cb);
-    setCallback(() => cb);
+    if (mounted) {
+      startTransition(cb);
+      setCallback(() => cb);
+    } else {
+      cb();
+    }
   };
+  useEffect(() => {
+    setMounted(true);
+    return () => {
+      setMounted(false)
+    };
+  }, []);
   useEffect(() => {
     const timeout = (callback && isPending) ? setTimeout(callback, transitionLimit) : 0;
     return () => clearTimeout(timeout);
@@ -593,7 +604,7 @@ export function useLocation() {
     return () => {
       router.removeConsumer(consumer);
     };
-  }, []);
+  }, [ router ]);
   return router.location;
 }
 
@@ -604,10 +615,10 @@ export function useSequentialRouter(options) {
   // track changes make by hook consumer
   const controller = useMemo(() => new RouteController(router, false), [ router ]);
   const { parts, query } = controller;
-  const dispatch = () => {
+  const dispatch = useCallback(() => {
     controller.onRenderStart();
     controller.onRenderEnd();
-  };
+  }, [ controller ]);
   useEffect(() => {
     const pOps = parts.ops, qOps = query.ops;
     const consumer = { pOps, qOps, dispatch, atRoot: false };
@@ -617,7 +628,7 @@ export function useSequentialRouter(options) {
       router.removeConsumer(consumer);
       router.removeTraps(controller.traps);
     };
-  }, [ parts, query, router ]);
+  }, [ parts, query, router, dispatch, controller ]);
   const methods1 = useMemo(() => {
     const { pushing, replacing, throw404, rethrow, trap, detour, isDetour } = controller;
     return { pushing, replacing, throw404, rethrow, trap, detour, isDetour };
@@ -670,7 +681,7 @@ function useRouteFrom(router, dispatch, atRoot = false) {
       router.removeConsumer(consumer);
       router.removeTraps(controller.traps);
     };
-  }, [ parts, query, router, atRoot ]);
+  }, [ parts, query, router, controller, dispatch, atRoot ]);
   const methods = useMemo(() => {
     const { pushing, replacing, throw404, rethrow, trap, detour, isDetour } = controller;
     return { pushing, replacing, throw404, rethrow, trap, detour, isDetour };

@@ -1,5 +1,5 @@
 import { expect } from 'chai';
-import { createElement, useState, Fragment } from 'react';
+import { createElement, useState, Fragment, Suspense, lazy } from 'react';
 import { withTestRenderer } from './test-renderer.js';
 import { withJSDOM } from './jsdom.js';
 import { withReactDOM } from './dom-renderer.js';
@@ -1278,6 +1278,30 @@ describe('#useSequentialRouter()', function() {
           }
         };
         expect(f).to.throw();
+      });
+    });
+  })
+  it('should not use transition when the router itself is suspended', async function() {
+    await withJSDOM('http://example.test/hello', async () => {
+      await withReactDOM(async ({ render, toJSON, act, node }) => {
+        const Lazy = lazy(async () => new Promise(() => {}));
+        let d;
+        function Test() {
+          const provide = useRouter();
+          return createElement(Suspense, { fallback: 'Donut' }, provide((parts, query, { detour }) => {
+            d = detour;
+            switch (parts[0]) {
+              case 'hello':
+                return createElement(Lazy);
+              default:
+                return 'Something';
+            }
+          }));
+        }
+        const el = createElement(Test);
+        render(el);
+        await act(() => d([ 'dingo' ]));
+        expect(node.textContent).to.equal('Something');
       });
     });
   })
