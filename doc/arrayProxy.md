@@ -1,4 +1,4 @@
-# arrayProxy(array, def)
+# arrayProxy(array, descriptors)
 
 Create a proxy that lets you reference items in an array by name
 
@@ -21,7 +21,7 @@ Create a proxy that lets you reference items in an array by name
 ## Parameters
 
 * `array` - `<Array>` The target array
-* `def` - `<Object>` Definition object
+* `descriptors` - `<Object>` Property descriptors
 
 ## Return value
 

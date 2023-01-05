@@ -68,8 +68,8 @@ By default, changes to `parts` trigger calls to
 calls to [`replaceState`](https://developer.mozilla.org/en-US/docs/Web/API/History/replaceState). When both type of
 changes occur, `pushState` has precedence.
 
-You can use `replacing` to indicate that changes made to the path should lead to a `replaceState` instead of
-the default `pushState`:
+You can use [`replacing`](./doc/replacing.md) to indicate that changes to the path should trigger a `replaceState`
+instead of the default `pushState`:
 
 ```js
   replacing(() => {
@@ -78,7 +78,7 @@ the default `pushState`:
   });
 ```
 
-Conversely, you can use `pushing` to force the use of `pushState` when query variables are changes:
+Conversely, you can use [`pushing`](./doc/pushing.md) to force the use of `pushState` when query variables are changes:
 
 ```js
   pushing(() => query.search = evt.target.value);
@@ -86,8 +86,8 @@ Conversely, you can use `pushing` to force the use of `pushState` when query var
 
 ## Changing route during rendering
 
-Normally, you would make changes to `parts` or `query` inside an event handler. You can change them while a component
-is rendering if you must. To do so, you need to use replacing:
+Normally, you would make changes to `parts` or `query` inside event handlers. You can change them while a component
+is rendering if you must. To do so, you need to use [`replacing`](./doc/replacing.md):
 
 ```js
 function ProjectPage() {
@@ -100,41 +100,66 @@ function ProjectPage() {
 }
 ```
 
-`replacing` will throw a `RouteChangeInterruption` error. When the router receives this error from its error boundary,
-the changes will be applied. The error boundary's attempt at reconstructing the component will subsequently proceed
-without incident.
+`replacing` will throw a [`RouteChangeInterruption`](./doc/RouteChangeInterruption.md) error. When the router
+receives this error from its error boundary, the changes will be applied. The error boundary's attempt at
+reconstructing the component will subsequently proceed without incident.
 
 This behavior is applicable to consumers of `useRoute` only. At the root level, changes get applied immediately.
 
 ## Error handling
 
 Array-router provides an [error boundary](https://reactjs.org/docs/error-boundaries.html) that redirect
-errors to the root. A captured error is rethrown the moment your code accesses one of the proxies (`parts` or `query`)
-or when `rethrow` is called.
+errors to the root. A captured error is rethrown the moment your code attempts to access one of the proxies
+(`parts` or `query`) or when [`rethrow`](./doc/rethrow.md) is called.
 
 ## Array proxy
+
+Working with array elements is somewhat unintuitive. `parts[0]`, `parts[1]` don't tell us what they represent to our
+app. This is why the library provides a way for you to reference array elements by name instead:
+
+```js
+  const route = arrayProxy(parts, {
+    screen: 0,
+    id: 1,
+  });
+  if (route.screen === 'products') {
+    if (route.id) {
+      return <ProductPage id={route.id} />;
+    } else {
+      return <ProductList />;
+    }
+  } else ...
+```
+
+`route.screen` in the example is mapped to `parts[0]` while `route.id` is mapped `parts[1]`. The mapping works for
+both reading and writing. It works for deleting too: `delete route.screen;` is translated as `parts.splice(0)`
+(since removal of both the zeroth element and those coming after is the only way we can ensure that `parts[0]`
+would yield `undefined`).
+
+See the documentation of [arrayProxy](./doc/arrayProxy.md) for more sophisticated ways of mapping elements to
+properties.
 
 ## API Reference
 
 ### Hooks
 
-* [`useLocation`](./useLocation.md)
-* [`useRouter`](./useRouter.md)
-* [`useRoute`](./useRoute.md)
-* [`useSequentialRouter`](./useSequentialRouter.md)
+* [`useLocation`](./doc/useLocation.md)
+* [`useRouter`](./doc/useRouter.md)
+* [`useRoute`](./doc/useRoute.md)
+* [`useSequentialRouter`](./doc/useSequentialRouter.md)
 
 ### Router methods
 
-* [`detour`](./detour.md)
-* [`isDetour`](./isDetour.md)
-* [`pushing`](./pushing.md)
-* [`replacing`](./replacing.md)
-* [`rethrow`](./rethrow.md)
-* [`throw404`](./throw404.md)
-* [`trap`](./trap.md)
+* [`detour`](./doc/detour.md)
+* [`isDetour`](./doc/isDetour.md)
+* [`pushing`](./doc/pushing.md)
+* [`replacing`](./doc/replacing.md)
+* [`rethrow`](./doc/rethrow.md)
+* [`throw404`](./doc/throw404.md)
+* [`trap`](./doc/trap.md)
 
 ### Error objects
 
-* [`RouteChangeInterruption`](./RouteChangeInterruption.md)
-* [`RouteChangePending`](./RouteChangePending.md)
-* [`RouteError`](./RouteError.md)
+* [`RouteChangeInterruption`](./doc/RouteChangeInterruption.md)
+* [`RouteChangePending`](./doc/RouteChangePending.md)
+* [`RouteError`](./doc/RouteError.md)
