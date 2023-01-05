@@ -114,135 +114,27 @@ or when `rethrow` is called.
 
 ## Array proxy
 
-## useRouter([options])
+## API Reference
 
-### Syntax
+### Hooks
 
-```js
-export default function App() {
-  const provide = useRouter();
-  return (
-    <div className="App">
-      {provide((parts, query, { throw404 }) => {
-        try {
-          switch (parts[0]) {
-            case undefined:
-              return <WelcomePage />
-            case 'categories':
-              return <CategoryPage />
-            case 'forums':
-              return <ForumPage />
-            default:
-              throw404();
-          }
-        } catch (err) {
-          return <ErrorPage error={err} />
-        }
-      })}
-    </div>
-  );
-}
-```
+* [`useLocation`](./useLocation.md)
+* [`useRouter`](./useRouter.md)
+* [`useRoute`](./useRoute.md)
+* [`useSequentialRouter`](./useSequentialRouter.md)
 
-### Parameters
+### Router methods
 
-* `options` - `<Object>` Object containing router options
+* [`detour`](./detour.md)
+* [`isDetour`](./isDetour.md)
+* [`pushing`](./pushing.md)
+* [`replacing`](./replacing.md)
+* [`rethrow`](./rethrow.md)
+* [`throw404`](./throw404.md)
+* [`trap`](./trap.md)
 
-### Return value
+### Error objects
 
-A function with three arguments: `parts`, `query`, and `methods`. These are the same as the
-objects returned by [`useRoute`](#useRoute).
-
-### Options
-
-* `basePath` - `<string>` The base path of the app (default: `'/'`)
-* `location` - `<string>` or `<URL>` The initial location (default: `globalThis.location`)
-* `trailingSlash` - `<boolean>` Whether URLs should end with a trailing slash (default: `false`)
-* `transitionLimit` - `<number>` Maximum transition time in millisecond (default: 50)
-
-### Methods
-
-* `pushing(cb)` - Use `pushState` when query variables are changed
-* `replacing(cb)` - Use `replaceState` when path parts are changed
-* `rethrow()` - Throw error caught at error boundary
-* `throw404()` - Throw RouteError
-* `trap(type, cb)` - Capture errors or detour events
-* `detour(parts = [], query = {}, push = false)` - Jump to a different location as though a link has been clicked
-* `isDetour(err)` - Return true if the error object is an instance of `RouteChangePending`
-
-## useRoute()
-
-Make use of a router created further up the component tree.
-
-### Syntax
-
-```js
-export default function CategoryPage() {
-  const [ parts, query, { replacing } ] = useRoute();
-  const categoryId = parts[1];
-
-  const onClick = (evt) => useCallback(() => {
-    replacing(() => parts[1] = evt.value);
-  }, [ replacing ]);
-
-  return (
-    /* ... */
-  );
-}
-```
-
-### Return value
-
-An array containing path parts, an object containing query variables, an object holding methods of the hook.
-
-### Methods
-
-* `pushing(cb)` - Use `pushState` when query variables are changed
-* `replacing(cb)` - Use `replaceState` when path parts are changed
-* `rethrow()` - Throw error caught at error boundary
-* `throw404()` - Throw RouteError
-* `trap(type, cb)` - Capture errors or detour events
-* `detour(parts = [], query = {}, push = false)` - Jump to a different location as though a link has been clicked
-* `isDetour(err)` - Return true if the error object is an instance of `RouteChangePending`
-
-## useLocation()
-
-Return the current location
-
-### Syntax
-
-```js
-export default function LocationBar() {
-  const url = useLocation();
-  return <span>{url}</span>;
-}
-```
-
-### Return value
-
-An [`URL`](https://developer.mozilla.org/en-US/docs/Web/API/URL) object.
-
-## useSequentialRouter([options])
-
-### Syntax
-
-### Return value
-
-An array holding `parts`, `query`, `methods`, and `creationMethods`.
-
-### Methods
-
-* `pushing(cb)` - Use `pushState` when query variables are changed
-* `replacing(cb)` - Use `replaceState` when path parts are changed
-* `rethrow()` - Throw error caught at error boundary
-* `throw404()` - Throw RouteError
-* `trap(type, cb)` - Capture errors or detour events
-* `detour(parts = [], query = {}, push = false)` - Jump to a different location as though a link has been clicked
-* `isDetour(err)` - Return true if the error object is an instance of `RouteChangePending`
-
-### Creation methods
-
-* `createContext(children)` - Create a router context provider around the given element
-* `createBoundary(children)` - Create an error boundary around the given element
-
-## arrayProxy()
+* [`RouteChangeInterruption`](./RouteChangeInterruption.md)
+* [`RouteChangePending`](./RouteChangePending.md)
+* [`RouteError`](./RouteError.md)
