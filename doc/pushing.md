@@ -1,6 +1,6 @@
 # pushing(cb)
 
-Use `pushState` when query variables are changed
+Use [`pushState`](https://developer.mozilla.org/en-US/docs/Web/API/History/pushState) when query variables are changed
 
 ## Syntax
 

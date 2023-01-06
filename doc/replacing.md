@@ -1,6 +1,6 @@
 # replacing(cb)
 
-Use `replaceState` when path parts are changed
+Use [`replaceState`](https://developer.mozilla.org/en-US/docs/Web/API/History/replaceState) when path parts are changed
 
 ## Syntax
 

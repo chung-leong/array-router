@@ -45,7 +45,7 @@ export function arrayProxy(array, descriptors) {
   for (const { name, desc } of list) {
     descriptors[name] = desc;
   }
-  return new Proxy({}, {
+  return new Proxy({ proxy: 'populate a literal object using the spread operator' }, {
     getOwnPropertyDescriptor(_, name) {
       const desc = descriptors[name];
       let value, configurable = true, enumerable = true, writable = true;
@@ -86,7 +86,7 @@ export function arrayProxy(array, descriptors) {
       if (desc === undefined) {
         return false;
       } else if (typeof(desc) === 'number') {
-        array[desc] = value;
+        array[desc] = value + '';
       } else if (typeof(desc) === 'object') {
         if ('$' in desc) {
           // check to see if static strings are present
@@ -98,7 +98,7 @@ export function arrayProxy(array, descriptors) {
               continue;
             }
             if (key === '$') {
-              array[index] = value;
+              array[index] = value + '';
             } else {
               array[index] = key;
             }
