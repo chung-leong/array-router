@@ -1,5 +1,7 @@
 ## useRouter([options])
 
+Create a router
+
 ### Syntax
 
 ```js
@@ -37,7 +39,7 @@ export default function App() {
 * `basePath` - `<string>` The base path of the app (default: `'/'`)
 * `location` - `<string>` or `<URL>` The initial location (default: `globalThis.location`)
 * `trailingSlash` - `<boolean>` Whether URLs should end with a trailing slash (default: `false`)
-* `transitionLimit` - `<number>` Maximum transition time in millisecond (default: 50)
+* `transitionLimit` - `<number>` Maximum transition time in millisecond (default: 100)
 
 ## Return value
 

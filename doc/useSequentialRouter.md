@@ -1,7 +1,18 @@
 # useSequentialRouter([options])
 
+Create a router suitable for async operation
+
 ## Syntax
 
+```js
+export default function App() {
+  const [ parts, query, rMethods, { createContext, createBoundary } ] = useSequentialRouter();
+  return createContext(useSequential(async function*({ wrap }) {
+    wrap(children => createBoundary(children));
+    /* ... */
+  }, [ parts, query, rMethods, createBoundary ]));
+}
+```
 
 ## Parameters
 
@@ -12,7 +23,7 @@
 * `basePath` - `<string>` The base path of the app (default: `'/'`)
 * `location` - `<string>` or `<URL>` The initial location (default: `globalThis.location`)
 * `trailingSlash` - `<boolean>` Whether URLs should end with a trailing slash (default: `false`)
-* `transitionLimit` - `<number>` Maximum transition time in millisecond (default: 50)
+* `transitionLimit` - `<number>` Maximum transition time in millisecond (default: 100)
 
 ## Return value
 
@@ -32,3 +43,12 @@ An array holding `parts`, `query`, `methods`, and `creationMethods`.
 
 * `createContext` - Create a router context provider
 * `createBoundary` - Create an error boundary
+
+## Notes
+
+Unlike [`useRouter`](./useRouter.md), `useSequentialRouter` does not trigger component updates. The async code is
+expected to deal with changes it makes on its own and capture detour events using [`trap`](./trap.md).
+
+`transitionLimit` would only affect child components that use `useRoute`.
+
+Designed to work with [React-seq](https://github.com/chung-leong/react-seq).

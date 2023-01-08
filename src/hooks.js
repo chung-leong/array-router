@@ -645,7 +645,7 @@ function useRouterOptions(options = {}) {
     basePath = '/',
     location,
     trailingSlash = false,
-    transitionLimit = 50,
+    transitionLimit = 100,
   } = options;
   if (!basePath.endsWith('/')) {
     throw new Error('basePath should have a trailing slash');
