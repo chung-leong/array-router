@@ -1066,7 +1066,9 @@ describe('#useLocation()', function() {
         expect(node.innerHTML).to.equal('<a href="/somewhere?a=b">hello</a>');
         const [ a ] = node.getElementsByTagName('A');
         await act(() => a.click());
+        expect(error).to.be.instanceOf(RouteChangePending);
         expect(error.reason).to.equal('link');
+        expect(error.source).to.have.property('tagName', 'A');
         expect(error.parts).to.eql([ 'somewhere' ]);
         expect(error.query).to.eql({ a: 'b' });
         expect(error.url.href).to.equal('http://example.test/somewhere?a=b');
@@ -1176,6 +1178,7 @@ describe('#useLocation()', function() {
         expect(window.location.href).to.equal('http://example.test/somewhere/');
         await act(async () => window.history.go(-1) ?? delay(10));
         expect(detour.reason).to.equal('back');
+        expect(detour.source).to.be.null;
         expect(detour.parts).to.eql([ 'hello' ]);
         expect(detour.query).to.eql({});
         expect(detour.url.href).to.equal('http://example.test/hello/')

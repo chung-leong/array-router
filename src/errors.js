@@ -26,12 +26,13 @@ export class RouteChangeInterruption extends Error {
 }
 
 export class RouteChangePending extends Error {
-  constructor(url, parts, query, reason, internal = true) {
+  constructor(url, parts, query, reason, source, internal = true) {
     super(`Detouring to ${url} (${reason})`);
     this.url = url;
     this.parts = parts;
     this.query = query;
     this.reason = reason;
+    this.source = source;
     this.internal = internal;
     this.promise = new Promise((r1, r2) => {
       this.resolve = r1;

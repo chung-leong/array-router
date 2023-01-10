@@ -152,7 +152,7 @@ class Router {
     }
   }
 
-  activateDetourTraps(reason, url, internal = true) {
+  activateDetourTraps(reason, url, source = null, internal = true) {
     const { basePath } = this.options;
     const promises = [];
     const fns = this.traps.detour;
@@ -169,7 +169,7 @@ class Router {
         }
       }
       for (const fn of fns) {
-        const err = new RouteChangePending(url, parts, query, reason, internal);
+        const err = new RouteChangePending(url, parts, query, reason, source, internal);
         const result = fn(err);
         if (result === true) {
           promises.push(err.promise);
@@ -231,7 +231,7 @@ class Router {
             const url = new URL(link);
             const internal = (link.origin === location.origin && link.pathname.startsWith(basePath));
             if (!internal || url.pathname !== location.pathname || url.search !== location.search) {
-              const promise = this.activateDetourTraps('link', url, internal);
+              const promise = this.activateDetourTraps('link', url, link, internal);
               if (internal) {
                 if (promise) {
                   promise.then(() => this.change(url, true, true), () => {});
@@ -533,7 +533,7 @@ class RouteController {
   detour = async (parts = [], query = {}, push = true) => {
     try {
       const url = this.router.createURL(parts, query);
-      await this.router.activateDetourTraps('link', url, true);
+      await this.router.activateDetourTraps('link', url);
       this.router.change(url, push, false);
       return true;
     } catch (err) {

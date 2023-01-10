@@ -9,6 +9,7 @@ back/forward buttons
 * `parts` - `<string[]>` The destination path parts
 * `query` - `<Object>` The destination query variables
 * `reason` - "link" or "back" or "forward"
+* `source` - `<HTMLAnchorElement>` Anchor element that was clicked (null if `reason` is not "link") 
 * `internal` - `<boolean>` Whether the URL points to a location within the app
 * `onSettlement` - `<Function>` A handle that will be invoked when a decision is made
 
