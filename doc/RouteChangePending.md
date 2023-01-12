@@ -9,7 +9,7 @@ back/forward buttons
 * `parts` - `<string[]>` The destination path parts
 * `query` - `<Object>` The destination query variables
 * `reason` - "link" or "back" or "forward"
-* `source` - `<HTMLAnchorElement>` Anchor element that was clicked (null if `reason` is not "link") 
+* `source` - `<HTMLAnchorElement>` Anchor element that was clicked (null if `reason` is not "link")
 * `internal` - `<boolean>` Whether the URL points to a location within the app
 * `onSettlement` - `<Function>` A handle that will be invoked when a decision is made
 
@@ -17,3 +17,8 @@ back/forward buttons
 
 * `proceed` <sup>async</sup> - Proceed with the change
 * `prevent` - Prevent the change from occurring
+
+## Notes
+
+When there are multiple traps, `proceed` would wait for the others to approve the change as well. It would throw an
+error if one of the other traps chooses to prevent the change.

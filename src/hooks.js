@@ -158,7 +158,7 @@ class Router {
       return Promise.reject(new Error('Detour outstanding'));
     }
     const { basePath } = this.options;
-    const promises = [];
+    const errors = [];
     const fns = this.traps.detour;
     if (fns.length > 0) {
       let parts = null, query = null;
@@ -176,19 +176,19 @@ class Router {
         const err = new RouteChangePending(url, parts, query, reason, source, internal);
         const result = fn(err);
         if (result === true) {
-          promises.push(err.promise);
+          errors.push(err);
         }
       }
     }
-    if (promises.length === 0) {
+    if (errors.length === 0) {
       return null;
     }
-    return this.currentDetour = Promise.all(promises).then(() => {
-      this.currentDetour = null;
-    }, (err) => {
-      this.currentDetour = null;
-      throw err;
-    });
+    this.currentDetour = Promise.all(errors.map(e => e.promise));
+    for (const err of errors) {
+      err.all = this.currentDetour;
+    }
+    this.currentDetour.then(() => this.currentDetour = null, () => this.currentDetour = null);
+    return this.currentDetour;
   }
 
   activateErrorTraps(error) {

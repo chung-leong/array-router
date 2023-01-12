@@ -1050,10 +1050,11 @@ describe('#useLocation()', function() {
   it('should allow the trapping of changes due to click on link', async function() {
     await withJSDOM('http://example.test/hello', async () => {
       await withReactDOM(async ({ render, toJSON, act, node }) => {
-        let error;
+        let error, p;
         function Test() {
           const provide = useRouter({ trailingSlash: true });
           return provide((parts, query, { trap }) => {
+            p = parts;
             trap('detour', (err) => {
               error = err;
               return true;
@@ -1081,7 +1082,14 @@ describe('#useLocation()', function() {
         expect(window.location.href).to.equal('http://example.test/hello/');
         await act(() => a.click());
         error.onSettlement = () => settlementCount++;
-        await act(() => error.proceed());
+        let p0 = p[0];
+        expect(p0).to.equal('hello');
+        await act(async () => {
+          await error.proceed();
+          // parts should contain new values at this point
+          p0 = p[0];
+        });
+        expect(p0).to.equal('somewhere');
         expect(node.innerHTML).to.equal('<a href="/somewhere?a=b">somewhere</a>');
         expect(window.location.href).to.equal('http://example.test/somewhere/?a=b');
         expect(settlementCount).to.equal(2);

@@ -38,14 +38,15 @@ export class RouteChangePending extends Error {
       this.resolve = r1;
       this.reject = r2;
     });
+    this.all = null;
     this.onSettlement = null;
   }
 
   async proceed() {
     this.resolve();
     this.onSettlement?.();
-    // ensure that this function returns after .then() handlers attached to the promise have run
-    await this.promise;
+    // await decisions of all other traps
+    await this.all;
   }
 
   prevent() {
