@@ -15,6 +15,7 @@ class Router {
   history = [ { index: 0, href: '' } ];
   historyIndex = 0;
   traps = { detour: [], error: [] };
+  currentDetour = null;
   startTransition = null;
   updateRoot = null;
 
@@ -153,6 +154,9 @@ class Router {
   }
 
   activateDetourTraps(reason, url, source = null, internal = true) {
+    if (this.currentDetour) {
+      return Promise.reject(new Error('Detour outstanding'));
+    }
     const { basePath } = this.options;
     const promises = [];
     const fns = this.traps.detour;
@@ -176,7 +180,15 @@ class Router {
         }
       }
     }
-    return (promises.length > 0) ? Promise.all(promises) : null;
+    if (promises.length === 0) {
+      return null;
+    }
+    return this.currentDetour = Promise.all(promises).then(() => {
+      this.currentDetour = null;
+    }, (err) => {
+      this.currentDetour = null;
+      throw err;
+    });
   }
 
   activateErrorTraps(error) {

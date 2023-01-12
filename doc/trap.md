@@ -35,7 +35,8 @@ Capture errors or detour events
 ## Notes
 
 A detour trap will only receive [`RouteChangePending`](./RouteChangePending.md) objects. It should
-return `true` if it wishes to defer the decision on whether to proceed with the detour.
+return `true` if it intends to make a decision on whether to proceed with the detour. Navigation will be
+blocked until `proceed` or `prevent` is called.
 
 An error trap should return a boolean if it has handled the error. This disables the default error handling
 mechanism. A return value of `true` means the error boundary can attempt to reconstruct the component tree

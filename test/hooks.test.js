@@ -1088,6 +1088,36 @@ describe('#useLocation()', function() {
       });
     });
   })
+  it('should not activate traps when there is a detour awaiting decision', async function() {
+    await withJSDOM('http://example.test/hello', async () => {
+      await withReactDOM(async ({ render, toJSON, act, node }) => {
+        let error, count = 0;
+        function Test() {
+          const provide = useRouter({ trailingSlash: true });
+          return provide((parts, query, { trap }) => {
+            trap('detour', (err) => {
+              count++;
+              error = err;
+              return true;
+            });
+            return createElement('a', { href: '/somewhere?a=b' }, parts[0]);
+          });
+        }
+        const el = createElement(Test);
+        await render(el);
+        expect(node.innerHTML).to.equal('<a href="/somewhere?a=b">hello</a>');
+        const [ a ] = node.getElementsByTagName('A');
+        await act(() => a.click());
+        expect(error).to.be.instanceOf(RouteChangePending);
+        expect(count).to.equal(1);
+        await act(() => a.click());
+        expect(count).to.equal(1);
+        await act(() => error.proceed());
+        await act(() => a.click());
+        expect(count).to.equal(2);
+      });
+    });
+  })
   it('should allow the initiation of a detour programmatically', async function() {
     await withJSDOM('http://example.test/hello', async () => {
       await withReactDOM(async ({ render, toJSON, act, node }) => {
