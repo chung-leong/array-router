@@ -1,6 +1,6 @@
 # Array-router ![ci](https://img.shields.io/github/actions/workflow/status/chung-leong/array-router/node.js.yml?branch=main&label=Node.js%20CI&logo=github) ![nycrc config on GitHub](https://img.shields.io/nycrc/chung-leong/array-router)
 
-Array-route is a simple, light-weight library that helps you manage routes in your React application.
+Array-route is a simple, light-weight library that helps you manage routes in your React application. It's designed for React 18 and above.
 
 ## Syntax
 
@@ -64,9 +64,9 @@ to `/categories` while `parts.splice(0)` would send you all the way back to the 
 ## Override default push vs. replace behavior
 
 By default, changes to `parts` trigger calls to
-[`pushState`](https://developer.mozilla.org/en-US/docs/Web/API/History/pushState) while changes to `query` trigger
-calls to [`replaceState`](https://developer.mozilla.org/en-US/docs/Web/API/History/replaceState). When both type of
-changes occur, `pushState` has precedence.
+[`history.pushState`](https://developer.mozilla.org/en-US/docs/Web/API/History/pushState) while changes to `query` 
+trigger calls to [`history.replaceState`](https://developer.mozilla.org/en-US/docs/Web/API/History/replaceState). 
+When both type of changes occur, `pushState` has precedence.
 
 You can use [`replacing`](./doc/replacing.md) to indicate that changes to the path should trigger a `replaceState`
 instead of the default `pushState`:
@@ -86,14 +86,14 @@ Conversely, you can use [`pushing`](./doc/pushing.md) to force the use of `pushS
 
 ## Changing route during rendering
 
-Normally, you would make changes to `parts` or `query` inside event handlers. You can change them while a component
-is rendering if you must. To do so, you need to use [`replacing`](./doc/replacing.md):
+Normally, you would change `parts` or `query` inside event handlers. You can make changes while a component is 
+rendering--if you must. To do so, you need to use [`replacing`](./doc/replacing.md):
 
 ```js
 function ProjectPage() {
   const [ parts, query, { replacing } ] = useRoute();
   if (parts[1] === 'summary') {
-    // from an outdated URL
+    // fix an outdated URL
     replacing(() => parts[1] = 'overview');
   }
   /* ... */
@@ -101,21 +101,22 @@ function ProjectPage() {
 ```
 
 `replacing` will throw a [`RouteChangeInterruption`](./doc/RouteChangeInterruption.md) error. When the router
-receives this error from its error boundary, the changes will be applied. The error boundary's attempt at
-reconstructing the component will subsequently proceed without incident.
+receives this error from its error boundary, the changes will get applied. The error boundary's subsequent 
+attempt at reconstructing the component tree should then proceed without incident.
 
 This behavior is applicable to consumers of `useRoute` only. At the root level, changes get applied immediately.
 
 ## Error handling
 
 Array-router provides an [error boundary](https://reactjs.org/docs/error-boundaries.html) that redirect
-errors to the root. A captured error is rethrown the moment your code attempts to access one of the proxies
-(`parts` or `query`) or when [`rethrow`](./doc/rethrow.md) is called.
+errors to the root-level component (i.e. the one that calls `useRouter). A captured error is rethrown the 
+moment your code attempts to access one of the proxies (`parts` or `query`) or when [`rethrow`](./doc/rethrow.md) 
+is called.
 
 ## Array proxy
 
-Working with array elements is somewhat unintuitive. `parts[0]`, `parts[1]` don't tell us what they represent to our
-app. This is why the library provides a way for you to reference array elements by name instead:
+Working with array elements is somewhat unintuitive. `parts[0]`, `parts[1]` don't tell us what they actually 
+represent. This is why the library provides a way for you to reference array elements by name instead:
 
 ```js
   const route = arrayProxy(parts, {
@@ -163,3 +164,14 @@ properties.
 * [`RouteChangeInterruption`](./doc/RouteChangeInterruption.md)
 * [`RouteChangePending`](./doc/RouteChangePending.md)
 * [`RouteError`](./doc/RouteError.md)
+
+## Compatibility
+
+Array-router makes use of
+[JavaScript proxy](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Proxy). According
+to Mozilla, it is available in the following environment:
+
+![Proxy compatibility](./doc/img/proxy-compatibility.jpg)
+
+Since the functionality in question cannot be polyfilled, Array-router does not work in any version of Internet Explorer
+or Opera Mini.
