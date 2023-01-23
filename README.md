@@ -2,6 +2,13 @@
 
 Array-route is a simple, light-weight library that helps you manage routes in your React application. It's designed for React 18 and above.
 
+
+## Installation
+
+```sh
+npm install --save-dev array-router
+```
+
 ## Syntax
 
 App.js
