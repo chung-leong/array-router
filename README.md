@@ -109,7 +109,7 @@ This behavior is applicable to consumers of `useRoute` only. At the root level, 
 ## Error handling
 
 Array-router provides an [error boundary](https://reactjs.org/docs/error-boundaries.html) that redirect
-errors to the root-level component (i.e. the one that calls `useRouter). A captured error is rethrown the 
+errors to the root-level component (i.e. the one that calls `useRouter`). A captured error is rethrown the 
 moment your code attempts to access one of the proxies (`parts` or `query`) or when [`rethrow`](./doc/rethrow.md) 
 is called.
 
