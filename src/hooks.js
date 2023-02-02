@@ -548,6 +548,7 @@ function RouterTransition({ router, transitionLimit }) {
     const timeout = (callback && isPending) ? setTimeout(callback, transitionLimit) : 0;
     return () => clearTimeout(timeout);
   }, [ callback, isPending, transitionLimit ]);
+  return null;
 }
 
 export function useRouter(options) {
