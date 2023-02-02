@@ -32,14 +32,11 @@ class Router {
     // copy into existing object
     const pDiff = !compareResult(parts, newState.parts);
     if (pDiff) {
-      parts.splice(0, parts.length, ...newState.parts);
+      copyInto(newState.parts, parts);
     }
     const qDiff = !compareResult(query, newState.query);
     if (qDiff) {
-      for (const key of Object.keys(query)) {
-        delete query[key];
-      }
-      Object.assign(query, newState.query);  
+      copyInto(newState.query, query);
     }
     if (external) {
       // recreate the URL so it confirms to trailing slash setting
@@ -308,8 +305,15 @@ class RouteComponent {
       // return a function that call the array's method and log the operation
       const self = this;
       return function(...args) {
-        const fn = function() { return value.apply(this, args) };
         const mutating = self.mutatingFns.includes(name);
+        const coerce = (mutating) ? getCoercionMethod(self.source) : null;
+        const fn = function() { 
+          const result = value.apply(this, args);
+          if(coerce) {
+            apply(coerce, this);
+          }
+          return result;
+        };
         if (mutating) {
           // function is going to mutate the object, need to use a copy
           object = self.copy();
@@ -333,7 +337,8 @@ class RouteComponent {
   set(name, value) {
     this.onAccess?.();
     const object = this.copy();
-    object[name] = '' + value;
+    const coerce = getCoercionMethod(this.source);
+    object[name] = (coerce) ? coerce(value) : value;
     this.onMutation?.();
     return true;
   }
@@ -342,7 +347,7 @@ class RouteComponent {
     this.onAccess?.();
     const object = this.copy();
     delete object[name];
-    this.onMutation?.();
+    this.onMutation?.(); 
     return true;
   }
 
@@ -719,6 +724,46 @@ function clone(object) {
   }
 }
 
+function apply(method, object) {
+  if (object instanceof Array) {
+    for (let i = 0; i < object.length; i++) {
+      object[i] = method(object[i]);
+    }
+  } else {
+    for (const key in object) {
+      object[key] = method(object[key]);
+    }
+  }
+}
+
+const coercionMethods = new WeakMap();
+
+function getCoercionMethod(object) {
+  return coercionMethods.get(object);
+}
+
+export function setCoercionMethod(object, fn) {
+  coercionMethods.set(object, fn);
+  getCoercionMethod(object);
+}
+
+function copyInto(a, b) {
+  // copy the coercion method as well
+  setCoercionMethod(b, getCoercionMethod(a));
+  if (b instanceof Array) {
+    b.splice(0, b.length, ...a);
+  } else {
+    for (const key of Object.keys(b)) {
+      delete b[key];
+    }
+    Object.assign(b, a);
+  }
+}
+
+function toString(v) {
+  return v + '';
+}
+
 function parseWebURL(currentURL, { pathname, searchParams }, { basePath }) {
   if (!pathname.startsWith(basePath)) {
     throw new Error(`"${pathname}" does not start with "${basePath}"`);
@@ -731,6 +776,9 @@ function parseWebURL(currentURL, { pathname, searchParams }, { basePath }) {
   for (const [ name, value ] of searchParams) {
     query[name] = value;
   }
+  // parts and query can only contain strings
+  setCoercionMethod(parts, toString);
+  setCoercionMethod(query, toString);
   return { parts, query };
 }
 

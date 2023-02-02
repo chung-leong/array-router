@@ -3,6 +3,7 @@ export {
   useRoute,
   useLocation,
   useSequentialRouter,
+  setCoercionMethod,
 } from './src/hooks.js';
 export {
   RouteError,

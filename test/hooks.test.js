@@ -13,8 +13,8 @@ import {
   useRoute,
   useLocation,
   useSequentialRouter,
-  RouteError,
   RouteChangePending,
+  setCoercionMethod,
 } from '../index.js';
 
 describe('#useRouter()', function() {
@@ -1369,6 +1369,7 @@ describe('#useSequentialRouter()', function() {
       function parseURL(_, { pathname}) {
         const argv = parse(pathname);
         const { input: parts, flags: query } = meowparse(argv, options);
+        setCoercionMethod(parts, v => v + '');
         return { parts, query };
       }
 
@@ -1399,17 +1400,29 @@ describe('#useSequentialRouter()', function() {
         const options = { location, parseURL, createURL };
         const [ parts, query, {}, { createContext, createBoundary } ] = useSequentialRouter(options);
         p = parts;
-        q = query;       
+        q = query;
         return createContext(createElement(Location));
       }
 
       const el2 = createElement(Test2);
       await render(el2);
       expect(toJSON()).to.equal('argv:hello world --rainbow --camel-name Donald');
+      expect(q).to.eql({ rainbow: true, camelName: 'Donald' });
       await act(() => q.camelName = 'Sam')
       expect(toJSON()).to.equal('argv:hello world --rainbow');
-      await act(() => p.push('war'))
-      expect(toJSON()).to.equal('argv:hello world war --rainbow');
+      await act(() => {
+        p.push(1)
+        // number should be coerced into string
+        expect(p).to.eql([ 'hello', 'world', '1' ]);
+      });
+      expect(toJSON()).to.equal('argv:hello world 1 --rainbow');
+      await act(() => {
+        p.pop();
+        q.rainbow = false;
+        // no type coercion
+        expect(q.rainbow).to.equal(false);
+      })
+      expect(toJSON()).to.equal('argv:hello world');
     });
   })
 })
