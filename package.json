@@ -36,7 +36,7 @@
     "chai": "^4.3.6",
     "jsdom": "^19.0.0",
     "meow": "^11.0.0",
-    "meow-reverse": "^0.2.0",
+    "meow-reverse": "^0.2.1",
     "mocha": "^10.0.0",
     "mocha-skip-if": "^1.0.2",
     "react": "^18.0.0",
