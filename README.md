@@ -147,6 +147,15 @@ would yield `undefined`).
 See the documentation of [arrayProxy](./doc/arrayProxy.md) for more sophisticated ways of mapping elements to
 properties.
 
+## Usage in non-web environment
+
+This library can be employed in a non-web environment. You need to provide the following functions for 
+handling URLs in the router options:
+
+* [`parseURL`](./parseURL.md)
+* [`createURL`](./createURL.md)
+* [`applyURL`](./applyURL.md) <sup>optional</sup>
+
 ## API Reference
 
 ### Hooks

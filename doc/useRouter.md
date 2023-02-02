@@ -40,6 +40,9 @@ export default function App() {
 * `location` - `<string>` or `<URL>` The initial location (default: `globalThis.location`)
 * `trailingSlash` - `<boolean>` Whether URLs should end with a trailing slash (default: `false`)
 * `transitionLimit` - `<number>` Maximum transition time in millisecond (default: 100)
+* `createURL` - `<function>` Function for creating URLs from parts and query (default: standard handler)
+* `parseURL` - `<function>` Function for extracting parts and query from URLs (default: standard handler)
+* `applyURL` - `<function>` Function for applying the current URL to the environment (default: standard handler)
 
 ## Return value
 

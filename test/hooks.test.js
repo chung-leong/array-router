@@ -4,6 +4,9 @@ import { withTestRenderer } from './test-renderer.js';
 import { withJSDOM } from './jsdom.js';
 import { withReactDOM } from './dom-renderer.js';
 import { withSilentConsole } from './error-handling.js';
+import parse from 'shell-quote/parse.js';
+import quote from 'shell-quote/quote.js';
+import meowrev, { meowparse } from 'meow-reverse';
 
 import {
   useRouter,
@@ -508,6 +511,30 @@ describe('#useRouter()', function() {
         });
         expect(node.textContent).to.equal('hell 18');
         expect(history.length).to.equal(start + 1);
+      });
+    });
+  })
+  it('should not use transition when the router itself is suspended', async function() {
+    await withJSDOM('http://example.test/hello', async () => {
+      await withReactDOM(async ({ render, toJSON, act, node }) => {
+        const Lazy = lazy(async () => new Promise(() => {}));
+        let d;
+        function Test() {
+          const provide = useRouter();
+          return createElement(Suspense, { fallback: 'Donut' }, provide((parts, query, { detour }) => {
+            d = detour;
+            switch (parts[0]) {
+              case 'hello':
+                return createElement(Lazy);
+              default:
+                return 'Something';
+            }
+          }));
+        }
+        const el = createElement(Test);
+        render(el);
+        await act(() => d([ 'dingo' ]));
+        expect(node.textContent).to.equal('Something');
       });
     });
   })
@@ -1300,7 +1327,7 @@ describe('#useSequentialRouter()', function() {
   })
   it('should throw when proxy is accessed 1000 times in a row', async function() {
     await withJSDOM('http://example.test/hello', async () => {
-      await withReactDOM(async ({ render, toJSON, act, node }) => {
+      await withReactDOM(async ({ render, node }) => {
         let p;
         function Test() {
           const [ parts, query, {}, { createContext, createBoundary } ] = useSequentialRouter();
@@ -1322,28 +1349,67 @@ describe('#useSequentialRouter()', function() {
       });
     });
   })
-  it('should not use transition when the router itself is suspended', async function() {
-    await withJSDOM('http://example.test/hello', async () => {
-      await withReactDOM(async ({ render, toJSON, act, node }) => {
-        const Lazy = lazy(async () => new Promise(() => {}));
-        let d;
-        function Test() {
-          const provide = useRouter();
-          return createElement(Suspense, { fallback: 'Donut' }, provide((parts, query, { detour }) => {
-            d = detour;
-            switch (parts[0]) {
-              case 'hello':
-                return createElement(Lazy);
-              default:
-                return 'Something';
-            }
-          }));
-        }
-        const el = createElement(Test);
-        render(el);
-        await act(() => d([ 'dingo' ]));
-        expect(node.textContent).to.equal('Something');
-      });
+  it('should handle non-standard URL', async function() {
+    await withTestRenderer(async ({ render, toJSON, act }) => {
+      const options = { 
+        importMeta: import.meta, 
+        flags: {
+          rainbow: {
+            type: 'boolean',
+            alias: 'r'
+          },
+          camelName: {
+            type: 'string',
+            default: 'Sam',
+            alias: 'n',
+          }
+        },
+      };
+
+      function parseURL(_, { pathname}) {
+        const argv = parse(pathname);
+        const { input: parts, flags: query } = meowparse(argv, options);
+        return { parts, query };
+      }
+
+      function createURL(_, { parts: input, query: flags }) {
+        const argv = meowrev({ input, flags }, options);
+        const pathname = quote(argv);
+        return new URL(`argv:${pathname}`);
+      }
+
+      const location = `argv:hello world -r --camel-name Donald`;
+      let p, q;
+      function Test1() {
+        const options = { location, parseURL, createURL };
+        const [ parts, query, {}, { createContext, createBoundary } ] = useSequentialRouter(options);
+        p = parts;
+        q = query;
+        return `${parts[1]} ${query.camelName}`;
+      }
+      const el1 = createElement(Test1);
+      await render(el1);
+      expect(toJSON()).to.equal('world Donald');
+
+      function Location() {
+        const location = useLocation();
+        return location.href;
+      }
+      function Test2() {
+        const options = { location, parseURL, createURL };
+        const [ parts, query, {}, { createContext, createBoundary } ] = useSequentialRouter(options);
+        p = parts;
+        q = query;       
+        return createContext(createElement(Location));
+      }
+
+      const el2 = createElement(Test2);
+      await render(el2);
+      expect(toJSON()).to.equal('argv:hello world --rainbow --camel-name Donald');
+      await act(() => q.camelName = 'Sam')
+      expect(toJSON()).to.equal('argv:hello world --rainbow');
+      await act(() => p.push('war'))
+      expect(toJSON()).to.equal('argv:hello world war --rainbow');
     });
   })
 })

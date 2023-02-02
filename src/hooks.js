@@ -22,80 +22,58 @@ class Router {
   constructor(options) {
     this.options = options;
     const url = new URL(options.location ?? globalThis.location); // eslint-disable-line no-undef
-    this.location = new URL(url.origin);
+    this.location = new URL(url.origin.startsWith(url.protocol) ? url.origin : url.protocol);
     this.change(url, false, true);
   }
 
-  updateParts(path) {
-    const { parts } = this;
-    const { basePath } = this.options;
-    if (!path.startsWith(basePath)) {
-      throw new Error(`"${path}" does not start with "${basePath}"`);
-    }
-    const newParts = path.substr(basePath.length).split('/');
-    if (newParts[newParts.length - 1] === '') {
-      newParts.pop();
-    }
-    parts.splice(0, parts.length, ...newParts);
-  }
-
-  updateQuery(searchParams) {
-    const { query } = this;
-    const removing = Object.keys(query);
-    for (const [ name, value ] of searchParams) {
-      query[name] = value;
-      const index = removing.indexOf(name);
-      if (index !== -1) {
-        removing.splice(index, 1);
-      }
-    }
-    for (const name of removing) {
-      delete query[name];
-    }
-  }
-
-  updateBrowserState(push) {
-    if (typeof(window) === 'object' && typeof(push) === 'boolean') {
-      const { history } = window;
-      const { href } = this.location;
-      const index = this.historyIndex + (push ? 1 : 0);
-      const method = (push) ? history.pushState : history.replaceState;
-      const removing = (push) ? this.history.length - index : 1;
-      method.call(history, { index }, undefined, href);
-      this.history.splice(index, removing, { href, index });
-      this.historyIndex = index;
-    }
-  }
-
-  createURL(parts, query) {
-    const { location } = this;
-    const { trailingSlash, basePath } = this.options;
-    const path = parts.join('/') + (parts.length > 0 ? (trailingSlash ? '/' : '') : '');
-    const url = new URL(basePath + path, location);
-    const { searchParams } = url;
-    for (const [ name, value ] of Object.entries(query)) {
-      searchParams.append(name, value);
-    }
-    return url;
-  }
-
-  change(url, push, external = false) {
-    const { location, parts, query } = this;
-    const pDiff = location.pathname !== url.pathname;
-    const qDiff = location.search !== url.search;
+  updateState(url, push, external) {
+    const { parts, query, location, options } = this;
+    const newState = this.parseURL(url);
+    // copy into existing object
+    const pDiff = !compareResult(parts, newState.parts);
     if (pDiff) {
-      this.updateParts(url.pathname);
+      parts.splice(0, parts.length, ...newState.parts);
     }
+    const qDiff = !compareResult(query, newState.query);
     if (qDiff) {
-      this.updateQuery(url.searchParams);
+      for (const key of Object.keys(query)) {
+        delete query[key];
+      }
+      Object.assign(query, newState.query);  
     }
     if (external) {
       // recreate the URL so it confirms to trailing slash setting
       url = this.createURL(parts, query);
     }
     location.href = url.href;
-    this.notifyConsumers({ pDiff, qDiff });
-    this.updateBrowserState(push);
+    if (typeof(push) === 'boolean') {
+      const { applyURL } = options;
+      const { href } = location;
+      const index = this.historyIndex + (push ? 1 : 0);
+      const removing = (push) ? this.history.length - index : 1;      
+      applyURL?.(location, push, { index });
+      this.history.splice(index, removing, { href, index });
+      this.historyIndex = index;
+    }
+    return { pDiff, qDiff };
+  }
+
+  parseURL(url) {
+    const { location, options } = this;
+    const { parseURL } = options;
+    return parseURL(location, url, options);
+  }
+
+  createURL(parts, query) {
+    const { location, options } = this;
+    const { createURL } = options;
+    return createURL(location, { parts, query }, options);
+  }
+
+  change(url, push, external = false) {
+    const { location, parts, query } = this;
+    const diff = this.updateState(url, push, external);
+    this.notifyConsumers(diff);
   }
 
   reportError(error) {
@@ -161,17 +139,7 @@ class Router {
     const errors = [];
     const fns = this.traps.detour;
     if (fns.length > 0) {
-      let parts = null, query = null;
-      if (internal) {
-        parts = url.pathname.substr(basePath.length).split('/');
-        if (parts[parts.length - 1] === '') {
-          parts.pop();
-        }
-        query = {};
-        for (const [ name, value ] of url.searchParams) {
-          query[name] = value;
-        }
-      }
+      const { parts = null, query = null } = (internal) ? this.parseURL(url) : {};
       for (const fn of fns) {
         const err = new RouteChangePending(url, parts, query, reason, source, internal);
         const result = fn(err);
@@ -658,12 +626,15 @@ function useRouterOptions(options = {}) {
     location,
     trailingSlash = false,
     transitionLimit = 100,
+    createURL = createWebURL,
+    parseURL = parseWebURL,
+    applyURL = (typeof(window) === 'object') ? applyWebURL : null,
   } = options;
   if (!basePath.endsWith('/')) {
     throw new Error('basePath should have a trailing slash');
   }
   return useMemo(() => {
-    return { location, basePath, trailingSlash, transitionLimit };
+    return { location, basePath, trailingSlash, transitionLimit, createURL, parseURL, applyURL };
   }, [ location, basePath, trailingSlash, transitionLimit ]);
 }
 
@@ -722,6 +693,16 @@ function compareResult(a, b) {
           return false;
         }
       }
+    } else if (typeof(a) === 'object' && typeof(b) === 'object') {
+      const aKeys = Object.keys(a), bKeys = Object.keys(b);
+      if (aKeys.length !== bKeys.length) {
+        return false;
+      }
+      for (const key of aKeys) {
+        if (a[key] !== b[key]) {
+          return false;
+        }
+      }
     } else {
       return false;
     }
@@ -734,5 +715,40 @@ function clone(object) {
     return [ ...object ];
   } else {
     return { ...object };
+  }
+}
+
+function parseWebURL(currentURL, { pathname, searchParams }, { basePath }) {
+  if (!pathname.startsWith(basePath)) {
+    throw new Error(`"${pathname}" does not start with "${basePath}"`);
+  }
+  const parts = pathname.substr(basePath.length).split('/');
+  if (parts[parts.length - 1] === '') {
+    parts.pop();
+  }
+  const query = {};
+  for (const [ name, value ] of searchParams) {
+    query[name] = value;
+  }
+  return { parts, query };
+}
+
+function createWebURL(currentURL, { parts, query }, { trailingSlash, basePath }) {
+  const path = parts.join('/') + (parts.length > 0 ? (trailingSlash ? '/' : '') : '');
+  const url = new URL(basePath + path, currentURL);
+  const { searchParams } = url;
+  for (const [ name, value ] of Object.entries(query)) {
+    searchParams.append(name, value);
+  }
+  return url;
+}
+
+function applyWebURL(currentURL, push, state) {
+  const { history } = window;
+  const { href } = currentURL;
+  if (push) {
+    history.pushState(state, undefined, href);
+  } else {
+    history.replaceState(state, undefined, href);
   }
 }
