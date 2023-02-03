@@ -531,8 +531,17 @@ class RouteController {
   }
 }
 
+function useTransitionCompat() {
+  // the order of the items are backward in pre-18 version of React-reconciler
+  const items = useTransition();
+  if (typeof(items[0]) === 'function') {
+    items.reverse();
+  }
+  return items;
+}
+
 function RouterTransition({ router, transitionLimit }) {
-  const [ isPending, startTransition ] = useTransition();
+  const [ isPending, startTransition ] = useTransitionCompat();
   const [ callback, setCallback ] = useState();
   const [ mounted, setMounted ] = useState(false);
   router.startTransition = (cb) => {
