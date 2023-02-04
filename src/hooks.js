@@ -532,7 +532,7 @@ class RouteController {
 }
 
 function useTransitionCompat() {
-  // the order of the items are backward in pre-18 version of React-reconciler
+  // the order of the items are backward in pre-18 version of React
   const items = useTransition();
   if (typeof(items[0]) === 'function') {
     items.reverse();
