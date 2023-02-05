@@ -534,9 +534,11 @@ class RouteController {
 function useTransitionCompat() {
   // the order of the items are backward in pre-18 version of React
   const items = useTransition();
+  /* c8 ignore start */
   if (typeof(items[0]) === 'function') {
     items.reverse();
   }
+  /* c8 ignore stop */
   return items;
 }
 
@@ -734,13 +736,10 @@ function clone(object) {
 }
 
 function apply(method, object) {
+  // handling arrays only, since only they have mutating methods
   if (object instanceof Array) {
     for (let i = 0; i < object.length; i++) {
       object[i] = method(object[i]);
-    }
-  } else {
-    for (const key in object) {
-      object[key] = method(object[key]);
     }
   }
 }
